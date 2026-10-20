@@ -184,7 +184,7 @@
     <div class="pi-topbar">
         <h1>
             <i class="fas fa-file-invoice"></i>
-            Daftar Proposal Pengajuan
+            Daftar Pengajuan Proposal 
         </h1>
         <a href="{{ route('admin.proposal.create') }}" class="pi-new-btn">
             <i class="fas fa-plus"></i> Buat Proposal Baru
