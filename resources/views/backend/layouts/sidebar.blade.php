@@ -12,10 +12,10 @@
 
   <div class="collapse navbar-collapse w-auto" id="sidenav-collapse-main">
     <ul class="navbar-nav">
-      <li class="nav-item"><a class="nav-link text-dark" href="{{ route('admin.budget.index') }}"><i class="material-symbols-rounded">account_balance_wallet</i><span class="nav-link-text ms-1">Budget Departemen</span></a></li>
-      <li class="nav-item"><a class="nav-link text-dark" href="{{ route('admin.budget.requests') }}"><i class="material-symbols-rounded">add_card</i><span class="nav-link-text ms-1">Tambahan Budget</span></a></li>
+      <li class="nav-item"><a class="nav-link text-dark {{ request()->routeIs('admin.budget.index') ? 'active bg-gradient-primary text-white' : '' }}" href="{{ route('admin.budget.index') }}"><i class="material-symbols-rounded">account_balance_wallet</i><span class="nav-link-text ms-1">Budget Departemen</span></a></li>
+      <li class="nav-item"><a class="nav-link text-dark {{ request()->routeIs('admin.budget.requests') ? 'active bg-gradient-primary text-white' : '' }}" href="{{ route('admin.budget.requests') }}"><i class="material-symbols-rounded">add_card</i><span class="nav-link-text ms-1">Tambahan Budget</span></a></li>
       @if(in_array(Auth::user()->role, ['admin', 'keuangan']))
-      <li class="nav-item"><a class="nav-link text-dark" href="{{ route('admin.activity.index') }}"><i class="material-symbols-rounded">history</i><span class="nav-link-text ms-1">Log Aktivitas</span></a></li>
+      <li class="nav-item"><a class="nav-link text-dark {{ request()->routeIs('admin.activity.index') ? 'active bg-gradient-primary text-white' : '' }}" href="{{ route('admin.activity.index') }}"><i class="material-symbols-rounded">history</i><span class="nav-link-text ms-1">Log Aktivitas</span></a></li>
       @endif
 
       {{-- ================= DASHBOARD (Hanya Admin & Keuangan) ================= --}}
