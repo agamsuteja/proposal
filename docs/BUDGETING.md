@@ -51,7 +51,7 @@ BUDGET_TEST_MYSQL_DATABASE=proposal_budget_test php artisan test --filter=Depart
 
 Konfigurasi `.cpanel.yml` menjalankan `scripts/deploy-cpanel.sh` di checkout hosting `/home/myey1771/public_html/proposal`. Subdomain proposal sudah dipilih menggunakan PHP 8.2; `myesc.id` tidak perlu diubah dari PHP 8.1. Pastikan document root subdomain menunjuk ke direktori `public` Laravel.
 
-Script memakai `/opt/cpanel/ea-php82/root/usr/bin/php` untuk Composer dan Artisan, tanpa mengganti PHP default terminal. Node.js/npm harus tersedia pada PATH proses deployment cPanel. Jika hosting belum menyediakan npm, script berhenti sebelum instalasi/migrasi dan menampilkan prasyarat yang belum tersedia. Hosting tidak diperiksa langsung dari cloud dan deployment produksi belum dijalankan.
+Script memakai `/opt/cpanel/ea-php82/root/usr/bin/php` untuk Composer dan Artisan, tanpa mengganti PHP default terminal. Hosting tidak memerlukan Node.js/npm: hasil build frontend disertakan di `deployment/frontend`, diperiksa dengan SHA-256, lalu disalin ke `public/build` saat deploy. Setelah mengubah frontend atau template, jalankan `npm run build` di mesin pengembangan, perbarui folder artefak beserta `SHA256SUMS`, dan commit hasilnya. Hosting tidak diperiksa langsung dari cloud dan deployment produksi belum dijalankan.
 
 Cadangkan database sebelum deployment. Gabungkan perubahan ke `master`, kemudian pilih **Update from Remote** pada Git Version Control cPanel. Periksa dahulu melalui Terminal cPanel:
 
@@ -60,4 +60,4 @@ cd /home/myey1771/public_html/proposal
 bash scripts/deploy-cpanel.sh --check
 ```
 
-Jika lolos, jalankan **Deploy HEAD Commit**. Script memasang dependensi produksi dari lockfile, membangun frontend, menjalankan hanya migrasi tambahan budget, dan memperbarui cache Blade. `.env`, upload, dan data lama tidak disalin/ditimpa. Tidak ada `migrate:fresh`, reset Git, atau impor ulang SQL. Deployment tidak mengisi alokasi budget departemen secara otomatis.
+Jika lolos, jalankan **Deploy HEAD Commit**. Script memasang dependensi produksi dari lockfile, memasang hasil build frontend, menjalankan hanya migrasi tambahan budget, dan memperbarui cache Blade. `.env`, upload, dan data lama tidak disalin/ditimpa. Tidak ada `migrate:fresh`, reset Git, atau impor ulang SQL. Deployment tidak mengisi alokasi budget departemen secara otomatis.

@@ -18,10 +18,11 @@ if [[ ! -f composer.phar ]]; then
   echo 'composer.phar repositori tidak ditemukan.' >&2
   exit 1
 fi
-if ! command -v npm >/dev/null 2>&1; then
-  echo 'npm belum tersedia pada PATH cPanel. Aktifkan Node.js untuk build Vite terlebih dahulu.' >&2
+if [[ ! -f deployment/frontend/manifest.json || ! -f deployment/frontend/SHA256SUMS ]]; then
+  echo 'Belum ada hasil build frontend di Git: deployment/frontend.' >&2
   exit 1
 fi
+(cd deployment/frontend && sha256sum --check SHA256SUMS)
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo 'Ada perubahan file terlacak di hosting. Simpan perubahan sebelum deployment.' >&2
   exit 1
@@ -33,8 +34,9 @@ fi
 # Composer scripts invoke PHP through PATH; keep them on the selected runtime.
 export PATH="$(dirname "$DEPLOY_PHP"):$PATH"
 "$DEPLOY_PHP" composer.phar install --no-dev --prefer-dist --no-interaction --optimize-autoloader
-npm install --no-package-lock --no-audit --no-fund
-npm run build
+mkdir -p public/build
+cp -R deployment/frontend/assets public/build/
+cp deployment/frontend/manifest.json public/build/manifest.json
 "$DEPLOY_PHP" artisan config:clear
 # Only the additive budget migration: legacy Laravel migrations do not match this database.
 "$DEPLOY_PHP" artisan migrate --path=database/migrations/2026_10_27_000001_create_department_budgets.php --force
