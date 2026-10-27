@@ -60,4 +60,11 @@ cd /home/myey1771/public_html/proposal
 bash scripts/deploy-cpanel.sh --check
 ```
 
-Jika lolos, jalankan **Deploy HEAD Commit**. Script memasang dependensi produksi dari lockfile, memasang hasil build frontend, menjalankan hanya migrasi tambahan budget, dan memperbarui cache Blade. `.env`, upload, dan data lama tidak disalin/ditimpa. Tidak ada `migrate:fresh`, reset Git, atau impor ulang SQL. Deployment tidak mengisi alokasi budget departemen secara otomatis.
+Jika lolos, jalankan **Deploy HEAD Commit**. Script memasang dependensi produksi dari lockfile, memasang hasil build frontend, memeriksa tabel hasil impor SQL manual, dan memperbarui cache Blade. `.env`, upload, dan data lama tidak disalin/ditimpa. Tidak ada `migrate:fresh`, reset Git, atau impor ulang SQL. Deployment tidak mengisi alokasi budget departemen secara otomatis.
+
+
+## Pembaruan: pemasangan database manual melalui phpMyAdmin
+
+Sesuai pilihan pengguna, deployment cPanel tidak lagi menjalankan migrasi. Pilih database aplikasi pada phpMyAdmin, cadangkan database, lalu impor `database/sql/2026_10_27_department_budgets.sql` melalui tab **Import** (atau salin seluruh SQL ke tab **SQL**). Lima tabel baru dibuat tanpa mengubah tabel/data lama. File ini setara dengan migrasi fitur dan tidak mengisi alokasi awal. Jangan menjalankan migrasi fitur setelah mengimpor SQL karena tabelnya sudah ada. Petunjuk migrasi di atas hanya berlaku untuk instalasi yang memilih jalur migrasi, bukan hosting ini.
+
+Jika suatu tabel sudah ada, `IF NOT EXISTS` melewatinya; ini tidak menjamin struktur tabel lama cocok. SQL telah diuji dua kali pada database pengujian MariaDB dengan struktur dasar dari dump pengguna. Jika impor gagal, periksa pesan error sebelum mengulang; DDL tidak dibatalkan secara atomik. Setelah impor berhasil, script deploy hanya memeriksa keberadaan lima tabel dan tidak mengubah schema database.

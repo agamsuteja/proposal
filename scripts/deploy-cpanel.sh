@@ -38,8 +38,18 @@ mkdir -p public/build
 cp -R deployment/frontend/assets public/build/
 cp deployment/frontend/manifest.json public/build/manifest.json
 "$DEPLOY_PHP" artisan config:clear
-# Only the additive budget migration: legacy Laravel migrations do not match this database.
-"$DEPLOY_PHP" artisan migrate --path=database/migrations/2026_10_27_000001_create_department_budgets.php --force
+# Database is managed manually through phpMyAdmin; never run migrations here.
+"$DEPLOY_PHP" -r '
+require "vendor/autoload.php";
+$app = require "bootstrap/app.php";
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+foreach (["budget_departemen", "budget_requests", "budget_approvals", "budget_transfers", "activity_logs"] as $table) {
+    if (!Illuminate\Support\Facades\Schema::hasTable($table)) {
+        fwrite(STDERR, "Tabel $table belum ada. Import database/sql/2026_10_27_department_budgets.sql melalui phpMyAdmin terlebih dahulu.\n");
+        exit(1);
+    }
+}
+'
 "$DEPLOY_PHP" artisan view:clear
 "$DEPLOY_PHP" artisan view:cache
 printf '%s\n' 'Deployment selesai. Periksa /admin/login dan menu budget; keuangan perlu mengisi alokasi awal.'
