@@ -46,10 +46,11 @@ class PencairanDanaController extends Controller
 
     public function store(Request $request)
     {
+        abort_unless($request->user()->role === 'keuangan' && $request->user()->is_active, 403);
         $request->validate([
             'proposal_id' => 'required|exists:proposal,id',
             'rekening_id' => 'required|exists:rekening,id',
-            'jumlah_dana' => 'required|numeric|min:1',
+            'jumlah_dana' => 'required|numeric|decimal:0,2|min:1|max:99999999999999.99',
             'metode' => 'required|in:transfer,cash',
             'catatan' => 'required|string|max:500', // ✅ WAJIB ADA CATATAN
             'bukti_transfer' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048',
@@ -57,21 +58,32 @@ class PencairanDanaController extends Controller
     
         DB::beginTransaction();
         try {
-            $proposal = Proposal::with('user', 'pencairan')->findOrFail($request->proposal_id);
-            $rekening = Rekening::findOrFail($request->rekening_id);
+            $proposal = Proposal::lockForUpdate()->findOrFail($request->proposal_id);
+            \App\Models\Departemen::whereKey($proposal->departemen_id)->lockForUpdate()->firstOrFail();
+            $rekening = Rekening::lockForUpdate()->findOrFail($request->rekening_id);
+            if (!in_array($proposal->status, ['disetujui_senior_pastor', 'dicairkan_sebagian'])) {
+                throw new \RuntimeException('Proposal belum disetujui untuk pencairan.');
+            }
+            $year = (int) substr($proposal->tanggal_pengajuan, 0, 4);
+            $budgetService = app(\App\Services\DepartmentBudgetService::class);
+            if (\App\Services\DepartmentBudgetService::cents($request->jumlah_dana) > $budgetService->available($proposal->departemen_id, $year)) {
+                throw new \RuntimeException('Budget departemen tidak mencukupi. Ajukan tambahan budget terlebih dahulu.');
+            }
+            $proposal->load('user', 'pencairan');
     
             // 💰 Total yang sudah dicairkan
-            $totalSudahCair = $proposal->pencairan->sum('jumlah_dana');
-            $totalSetelahCair = $totalSudahCair + $request->jumlah_dana;
+            $totalSudahCair = \App\Services\DepartmentBudgetService::cents($proposal->pencairan()->sum('jumlah_dana'));
+            $totalSetelahCairCents = $totalSudahCair + \App\Services\DepartmentBudgetService::cents($request->jumlah_dana);
+            $totalSetelahCair = \App\Services\DepartmentBudgetService::amount($totalSetelahCairCents);
     
             // 💡 Cegah pencairan lebih besar dari sisa dana
-            if ($totalSetelahCair > $proposal->total_anggaran) {
-                return back()->with('error', 'Jumlah pencairan melebihi total anggaran proposal!');
+            if ($totalSetelahCairCents > \App\Services\DepartmentBudgetService::cents($proposal->total_anggaran)) {
+                throw new \RuntimeException('Jumlah pencairan melebihi total anggaran proposal!');
             }
     
             // 💡 Cegah saldo rekening minus
-            if ($rekening->saldo < $request->jumlah_dana) {
-                return back()->with('error', 'Saldo rekening tidak mencukupi!');
+            if (\App\Services\DepartmentBudgetService::cents($rekening->saldo) < \App\Services\DepartmentBudgetService::cents($request->jumlah_dana)) {
+                throw new \RuntimeException('Saldo rekening tidak mencukupi!');
             }
     
             // 📎 Upload bukti transfer (jika metode transfer)
@@ -94,7 +106,7 @@ class PencairanDanaController extends Controller
             ]);
     
             // 🔄 Update status proposal
-            if ($totalSetelahCair < $proposal->total_anggaran) {
+            if ($totalSetelahCairCents < \App\Services\DepartmentBudgetService::cents($proposal->total_anggaran)) {
                 $proposal->update(['status' => 'dicairkan_sebagian']);
             } else {
                 $proposal->update(['status' => 'dicairkan']);
