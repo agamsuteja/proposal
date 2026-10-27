@@ -23,6 +23,20 @@ class Proposal extends Model
         'status'
     ];
 
+    protected static function booted(): void
+    {
+        static::updating(function ($proposal) {
+            if (($proposal->isDirty('departemen_id') || $proposal->isDirty('tanggal_pengajuan')) && $proposal->pencairan()->exists()) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['departemen_id' => 'Departemen dan tahun proposal yang sudah dicairkan tidak dapat diubah.']);
+            }
+        });
+        static::deleting(function ($proposal) {
+            if ($proposal->pencairan()->exists()) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['proposal' => 'Proposal dengan riwayat pencairan tidak dapat dihapus.']);
+            }
+        });
+    }
+
     public function items()
     {
         return $this->hasMany(ProposalItem::class);

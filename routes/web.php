@@ -110,3 +110,14 @@ Route::prefix('admin')->name('admin.')->group(function () {
         });
     });  // end middleware auth
 });  // end prefix admin
+
+// Budget departemen dan pengajuan tambahan menggunakan alur approval yang sama.
+Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
+    Route::get('/budget', [\App\Http\Controllers\Backend\BudgetController::class, 'index'])->name('budget.index');
+    Route::get('/budget/pengajuan', [\App\Http\Controllers\Backend\BudgetController::class, 'index'])->name('budget.requests');
+    Route::put('/budget', [\App\Http\Controllers\Backend\BudgetController::class, 'save'])->name('budget.save');
+    Route::post('/budget/pengajuan', [\App\Http\Controllers\Backend\BudgetController::class, 'store'])->name('budget.store');
+    Route::post('/budget/{id}/approval', [\App\Http\Controllers\Backend\BudgetController::class, 'decide'])->name('budget.decide');
+    Route::post('/budget/{id}/transfer', [\App\Http\Controllers\Backend\BudgetController::class, 'fund'])->name('budget.fund');
+    Route::get('/aktivitas', [\App\Http\Controllers\Backend\BudgetController::class, 'logs'])->name('activity.index');
+});

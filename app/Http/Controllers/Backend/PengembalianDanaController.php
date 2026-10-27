@@ -182,17 +182,17 @@ class PengembalianDanaController extends Controller
 
         DB::transaction(function () use ($id, $request) {
 
-            $pengembalian = PengembalianDana::findOrFail($id);
+            $pengembalian = PengembalianDana::lockForUpdate()->findOrFail($id);
 
             if ($pengembalian->status !== 'pending') {
                 throw new \Exception('Data sudah diproses.');
             }
 
-            $rekening = Rekening::findOrFail($request->rekening_id);
+            \App\Models\Departemen::whereKey($pengembalian->proposal->departemen_id)->lockForUpdate()->firstOrFail();
+            $rekening = Rekening::lockForUpdate()->findOrFail($request->rekening_id);
 
             // Tambah saldo rekening
-            $rekening->saldo += $pengembalian->jumlah;
-            $rekening->save();
+            $rekening->increment('saldo', $pengembalian->jumlah);
 
             // Update pengembalian
             $pengembalian->update([
@@ -215,14 +215,13 @@ class PengembalianDanaController extends Controller
             abort(403, 'Anda tidak memiliki akses.');
         }
 
-        $pengembalian = PengembalianDana::findOrFail($id);
-
-        if ($pengembalian->status !== 'pending') {
-            return back()->with('error', 'Data sudah diproses.');
-        }
-
-        $pengembalian->status = 'ditolak';
-        $pengembalian->save();
+        DB::transaction(function () use ($id) {
+            $pengembalian = PengembalianDana::lockForUpdate()->findOrFail($id);
+            if ($pengembalian->status !== 'pending') {
+                throw \Illuminate\Validation\ValidationException::withMessages(['pengembalian' => 'Data sudah diproses.']);
+            }
+            $pengembalian->update(['status' => 'ditolak']);
+        });
 
         return back()->with('success', 'Pengembalian dana ditolak.');
     }
