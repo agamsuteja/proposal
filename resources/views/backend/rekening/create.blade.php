@@ -7,7 +7,8 @@
             <h5 class="fw-bold mb-0">➕ Tambah Rekening</h5>
         </div>
         <div class="card-body">
-            <form action="{{ route('admin.rekening.store') }}" method="POST">
+            @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+<form action="{{ route('admin.rekening.store') }}" method="POST">
                 @csrf
                 <div class="row mb-3">
                     <div class="col-md-6">

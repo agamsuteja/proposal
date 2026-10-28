@@ -183,7 +183,7 @@
                 <button type="submit" class="lp-btn lp-btn-primary">
                     <i class="fas fa-search"></i> Terapkan Filter
                 </button>
-                <a href="{{ route('admin.laporan.export.excel') }}" class="lp-btn lp-btn-excel">
+                <a href="{{ route('admin.laporan.export.excel', request()->only('start_date','end_date','departemen_id')) }}" class="lp-btn lp-btn-excel">
                     <i class="fas fa-file-excel"></i> Export Excel
                 </a>
                 <a href="{{ route('admin.laporan.export.pdf', request()->only('start_date','end_date','departemen_id')) }}"

@@ -7,7 +7,8 @@
     $isFinance = auth()->user()->role === 'keuangan';
     $allocated = $departments->sum('budget_cents');
     $used = $departments->sum('used_cents');
-    $statusLabels = ['pending' => ['Menunggu approval', 'amber'], 'disetujui' => ['Siap ditransfer', 'blue'], 'ditolak' => ['Ditolak', 'red'], 'ditransfer' => ['Sudah ditransfer', 'green']];
+    $reserved = $departments->sum('reserved_cents');
+    $statusLabels = ['pending' => ['Menunggu approval', 'amber'], 'disetujui' => ['Siap ditransfer', 'blue'], 'ditolak' => ['Ditolak', 'red'], 'ditransfer' => ['Sudah ditransfer', 'green'], 'dibatalkan'=>['Dibatalkan','gray'], 'dibalik'=>['Transfer dikembalikan','purple']];
     $stageLabels = ['departemen_head' => 'Kepala Departemen', 'group_head' => 'Kepala Grup', 'gembala' => 'Gembala'];
 @endphp
 <div class="budget-page">
@@ -21,12 +22,14 @@
         </a>
     </header>
     @include('backend.budget.partials.alerts')
+    @if($periodStatus==='closed')<div class="budget-note">Periode {{ $year }} ditutup. Perubahan dana memerlukan pembukaan kembali oleh keuangan.</div>@endif
 
     @if(!$isRequestPage)
         <div class="budget-stats">
             <div class="budget-stat"><div class="budget-stat-label"><i class="bi bi-wallet2" aria-hidden="true"></i>Total alokasi</div><div class="budget-stat-value">Rp {{ number_format($allocated / 100, 2, ',', '.') }}</div><div class="budget-stat-sub">Departemen yang dapat Anda akses</div></div>
             <div class="budget-stat amber"><div class="budget-stat-label"><i class="bi bi-arrow-up-right" aria-hidden="true"></i>Dana terpakai</div><div class="budget-stat-value">Rp {{ number_format($used / 100, 2, ',', '.') }}</div><div class="budget-stat-sub">Pencairan dikurangi pengembalian diterima</div></div>
-            <div class="budget-stat green"><div class="budget-stat-label"><i class="bi bi-check-circle" aria-hidden="true"></i>Saldo tersedia</div><div class="budget-stat-value">Rp {{ number_format(($allocated - $used) / 100, 2, ',', '.') }}</div><div class="budget-stat-sub">Sisa alokasi pada tahun {{ $year }}</div></div>
+            <div class="budget-stat green"><div class="budget-stat-label"><i class="bi bi-check-circle" aria-hidden="true"></i>Saldo tersedia</div><div class="budget-stat-value">Rp {{ number_format(($allocated - $used - $reserved) / 100, 2, ',', '.') }}</div><div class="budget-stat-sub">Sisa alokasi pada tahun {{ $year }}</div></div>
+            <div class="budget-stat"><div class="budget-stat-label">Dana dicadangkan</div><div class="budget-stat-value">Rp {{ number_format($reserved / 100, 2, ',', '.') }}</div><div class="budget-stat-sub">Untuk proposal disetujui yang belum dicairkan</div></div>
             <div class="budget-stat blue"><div class="budget-stat-label"><i class="bi bi-building" aria-hidden="true"></i>Departemen</div><div class="budget-stat-value">{{ $departments->count() }}</div><div class="budget-stat-sub">Dalam {{ $departments->pluck('grup_id')->unique()->count() }} grup yang dapat Anda akses</div></div>
         </div>
     @endif
@@ -41,6 +44,8 @@
         </div>
     </div>
 
+    @include('backend.budget.partials.management')
+    <div class="budget-actions mb-3"><a class="budget-button secondary" href="{{ route('admin.budget.export',['tahun'=>$year]) }}"><i class="bi bi-download"></i>Ekspor budget & realisasi</a></div>
     @if(!$isRequestPage)
         @forelse($departments->groupBy('grup_id') as $groupId => $groupDepartments)
             <section class="budget-card" aria-labelledby="group-{{ $groupId }}">
@@ -50,17 +55,18 @@
                 </div>
                 <div class="budget-table-wrap">
                     <table class="budget-table">
-                        <thead><tr><th scope="col">Departemen</th><th scope="col">Alokasi budget</th><th scope="col">Terpakai</th><th scope="col">Tersedia</th>@if($isFinance)<th scope="col">Atur alokasi</th>@endif</tr></thead>
+                        <thead><tr><th scope="col">Departemen</th><th scope="col">Alokasi budget</th><th scope="col">Terpakai</th><th scope="col">Dicadangkan</th><th scope="col">Tersedia</th>@if($isFinance)<th scope="col">Atur alokasi</th>@endif</tr></thead>
                         <tbody>
                         @foreach($groupDepartments as $department)
-                            @php $remaining = $department->budget_cents - $department->used_cents; @endphp
+                            @php $remaining = $department->available_cents; @endphp
                             <tr>
                                 <td><span class="budget-department">{{ $department->nama_departemen }}</span></td>
                                 <td class="budget-money">Rp {{ number_format($department->budget_cents / 100, 2, ',', '.') }}</td>
                                 <td><span class="budget-money">Rp {{ number_format($department->used_cents / 100, 2, ',', '.') }}</span><div class="budget-progress" role="img" aria-label="Pemakaian {{ $department->budget_cents > 0 ? round($department->used_cents / $department->budget_cents * 100) : 0 }} persen"><span style="width:{{ $department->budget_cents > 0 ? min(100, max(0, $department->used_cents / $department->budget_cents * 100)) : 0 }}%"></span></div></td>
+                                <td class="budget-money">Rp {{ number_format($department->reserved_cents / 100, 2, ',', '.') }}</td>
                                 <td class="budget-money {{ $remaining < 0 ? 'budget-negative' : 'budget-positive' }}">Rp {{ number_format($remaining / 100, 2, ',', '.') }}@if($department->budget_cents === 0)<div class="budget-help">Belum dialokasikan</div>@elseif($remaining <= 0)<div class="budget-help">Perlu tambahan budget</div>@endif</td>
                                 @if($isFinance)
-                                    <td><form action="{{ route('admin.budget.save') }}" method="post" class="budget-edit">@csrf @method('PUT')<input type="hidden" name="departemen_id" value="{{ $department->id }}"><input type="hidden" name="tahun" value="{{ $year }}"><input aria-label="Budget {{ $department->nama_departemen }}" class="budget-input" type="number" name="jumlah" min="0" step="0.01" required value="{{ \App\Services\DepartmentBudgetService::amount($department->budget_cents) }}"><button class="budget-button secondary" aria-label="Simpan budget {{ $department->nama_departemen }}"><i class="bi bi-check2" aria-hidden="true"></i>Simpan</button></form></td>
+                                    <td><details class="budget-details"><summary>Ubah alokasi</summary><form action="{{ route('admin.budget.save') }}" method="post" class="budget-edit">@csrf @method('PUT')<input type="hidden" name="departemen_id" value="{{ $department->id }}"><input type="hidden" name="tahun" value="{{ $year }}"><input aria-label="Budget {{ $department->nama_departemen }}" class="budget-input" type="number" name="jumlah" min="0" step="0.01" required value="{{ \App\Services\DepartmentBudgetService::amount($department->budget_cents) }}"><input class="budget-input" name="alasan" aria-label="Alasan perubahan alokasi" placeholder="Alasan perubahan" minlength="5" maxlength="1000" required><button class="budget-button secondary" @disabled($periodStatus!=='open') aria-label="Simpan budget {{ $department->nama_departemen }}"><i class="bi bi-check2" aria-hidden="true"></i>Simpan</button></form></details></td>
                                 @endif
                             </tr>
                         @endforeach
@@ -73,7 +79,7 @@
         @endforelse
         <div class="budget-note"><i class="bi bi-info-circle" aria-hidden="true"></i><span>Pemakaian dana mengikuti tahun pengajuan proposal. Transfer tambahan budget hanya memindahkan alokasi dalam grup yang sama, tanpa memindahkan saldo rekening bank.</span></div>
     @else
-        @if($departments->isNotEmpty())
+        @if($departments->isNotEmpty() && $periodStatus==='open')
             <div class="budget-two-col">
                 <section class="budget-card">
                     <div class="budget-card-header"><h2><i class="bi bi-pencil-square me-2" aria-hidden="true"></i>Ajukan tambahan budget</h2><span class="budget-badge purple">Periode {{ $year }}</span></div>
@@ -124,19 +130,20 @@
                             </li>
                         @endforeach
                     </ol>
-                    @if($item->status === 'pending' && $next?->approver_id === auth()->id())
+                    @if($periodStatus==='open' && $item->status === 'pending' && $next?->approver_id === auth()->id())
                         <hr class="budget-divider"><h4 class="budget-section-title">Keputusan Anda</h4>
                         <form method="post" action="{{ route('admin.budget.decide', $item->id) }}">@csrf<div class="budget-field"><label for="catatan-{{ $item->id }}">Catatan persetujuan</label><textarea class="budget-input" id="catatan-{{ $item->id }}" name="catatan" maxlength="1000" rows="2" placeholder="Tambahkan catatan bila diperlukan"></textarea></div><div class="budget-actions"><button name="status" value="disetujui" class="budget-button success"><i class="bi bi-check-lg" aria-hidden="true"></i>Setujui</button><button name="status" value="ditolak" class="budget-button danger"><i class="bi bi-x-lg" aria-hidden="true"></i>Tolak</button></div></form>
                     @endif
-                    @if($item->status === 'disetujui' && $isFinance)
+                    @if($periodStatus==='open' && $item->status === 'disetujui' && $isFinance)
                         <hr class="budget-divider"><h4 class="budget-section-title">Pilih sumber transfer</h4><p class="budget-help mb-3">Gunakan satu atau beberapa sumber dalam grup yang sama. Kosongkan sumber yang tidak dipakai. Total transfer harus Rp {{ number_format($item->jumlah, 2, ',', '.') }}.</p>
                         <form method="post" action="{{ route('admin.budget.fund', $item->id) }}">@csrf
                             @foreach($departments->where('grup_id', $item->departemen->grup_id)->where('id', '!=', $item->departemen_id)->values() as $index => $source)
-                                <div class="budget-field"><label for="sumber-{{ $item->id }}-{{ $source->id }}">{{ $source->nama_departemen }} <span class="budget-help">· Tersedia Rp {{ number_format(($source->budget_cents - $source->used_cents) / 100, 2, ',', '.') }}</span></label><input type="hidden" name="sumber[{{ $index }}][departemen_id]" value="{{ $source->id }}"><input class="budget-input" id="sumber-{{ $item->id }}-{{ $source->id }}" type="number" name="sumber[{{ $index }}][jumlah]" min="0.01" step="0.01" placeholder="Nominal transfer (Rp)"></div>
+                                <div class="budget-field"><label for="sumber-{{ $item->id }}-{{ $source->id }}">{{ $source->nama_departemen }} <span class="budget-help">· Tersedia Rp {{ number_format($source->available_cents / 100, 2, ',', '.') }}</span></label><input type="hidden" name="sumber[{{ $index }}][departemen_id]" value="{{ $source->id }}"><input class="budget-input" id="sumber-{{ $item->id }}-{{ $source->id }}" type="number" name="sumber[{{ $index }}][jumlah]" min="0.01" step="0.01" placeholder="Nominal transfer (Rp)"></div>
                             @endforeach
                             <button class="budget-button primary"><i class="bi bi-arrow-left-right" aria-hidden="true"></i>Transfer budget</button>
                         </form>
                     @endif
+                    @include('backend.budget.partials.request-actions')
                     @if($item->transfers->isNotEmpty())
                         <details class="budget-details"><summary>Riwayat transfer · {{ $item->transfers->count() }} sumber</summary><div class="budget-table-wrap"><table class="budget-table"><thead><tr><th scope="col">Tanggal</th><th scope="col">Sumber</th><th scope="col">Nominal</th></tr></thead><tbody>@foreach($item->transfers as $transfer)<tr><td>{{ $transfer->created_at?->format('d M Y, H:i') }}</td><td>{{ $transfer->sumber?->nama_departemen }}</td><td class="budget-money">Rp {{ number_format($transfer->jumlah, 2, ',', '.') }}</td></tr>@endforeach</tbody></table></div></details>
                     @endif

@@ -7,7 +7,8 @@
             <h5>Edit Pengguna</h5>
         </div>
         <div class="card-body">
-            <form action="{{ route('admin.user.update', $user->id) }}" method="POST">
+            @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+<form action="{{ route('admin.user.update', $user->id) }}" method="POST">
                 @csrf
                 @method('PUT')
 
@@ -75,7 +76,7 @@
 
                 {{-- Status aktif --}}
                 <div class="form-check mb-3">
-                    <input class="form-check-input" type="checkbox" name="is_active" value="1" {{ $user->is_active ? 'checked' : '' }}>
+                    <input type="hidden" name="is_active" value="0"><input class="form-check-input" type="checkbox" name="is_active" value="1" {{ $user->is_active ? 'checked' : '' }}>
                     <label class="form-check-label">Aktif</label>
                 </div>
 

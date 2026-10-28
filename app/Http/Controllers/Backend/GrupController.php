@@ -3,14 +3,19 @@
 namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
+use App\Models\Departemen;
 use App\Models\Grup;
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class GrupController extends Controller
 {
     public function index()
     {
         $grup = Grup::latest()->get();
+
         return view('backend.grup.index', compact('grup'));
     }
 
@@ -37,6 +42,7 @@ class GrupController extends Controller
     public function edit($id)
     {
         $grup = Grup::findOrFail($id);
+
         return view('backend.grup.edit', compact('grup'));
     }
 
@@ -56,7 +62,13 @@ class GrupController extends Controller
     public function destroy($id)
     {
         $grup = Grup::findOrFail($id);
-        $grup->delete();
+        DB::transaction(function () use ($id) {
+            $grup = Grup::lockForUpdate()->findOrFail($id);
+            if (Departemen::where('grup_id', $grup->id)->exists() || User::where('grup_id', $grup->id)->exists()) {
+                throw ValidationException::withMessages(['grup' => 'Grup masih terkait departemen atau pengguna dan tidak dapat dihapus.']);
+            }
+            $grup->delete();
+        }, 3);
 
         return redirect()->route('admin.grup.index')
             ->with('success', 'Grup berhasil dihapus');

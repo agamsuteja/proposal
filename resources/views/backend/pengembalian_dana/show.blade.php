@@ -175,7 +175,7 @@
                 <tr>
                     <th><i class="fas fa-image fa-sm" style="color:#c4b5fd;margin-right:5px"></i>Bukti Pembayaran</th>
                     <td>
-                        <a href="{{ asset('storage/'.$data->bukti) }}" target="_blank" class="pds-bukti-btn">
+                        <a href="{{ route('admin.documents.show', ['path' => $data->bukti]) }}" target="_blank" class="pds-bukti-btn">
                             <i class="fas fa-eye"></i> Lihat Bukti
                         </a>
                     </td>

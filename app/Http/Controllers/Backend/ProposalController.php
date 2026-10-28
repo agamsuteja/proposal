@@ -3,561 +3,267 @@
 namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityLog;
 use App\Models\ApprovalProposal;
 use App\Models\Departemen;
 use App\Models\NotaPenggunaanProposal;
 use App\Models\Proposal;
-use App\Models\ProposalItem;
-use App\Models\User;
+use App\Services\DepartmentBudgetService as Budgets;
+use App\Services\FinancialBalance;
+use App\Services\FinancialOperation;
+use App\Services\NotificationService;
+use App\Services\ProposalApprovers;
+use App\Services\WaTemplate;
+use App\Support\Access;
+use App\Support\Money;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class ProposalController extends Controller
 {
     public function index()
     {
-        $user = Auth::user();
-
-        // Query dasar
-        $query = Proposal::with(['departemen', 'user', 'items', 'pencairan', 'approval_flows'])
-            ->latest();
-
-        // === Filter berdasarkan role ===
-        if (in_array($user->role, ['karyawan', 'departemen_head'])) {
-            // 🔹 Hanya lihat proposal dari departemen sendiri
-            $query->where('departemen_id', $user->departemen_id);
-        } elseif ($user->role === 'group_head') {
-            // 🔹 Lihat proposal dari semua departemen dalam grup user
-            $departemenIds = \App\Models\Departemen::where('grup_id', $user->grup_id)->pluck('id');
-            $query->whereIn('departemen_id', $departemenIds);
-        }
-        // 🔹 Admin dan gembala bisa lihat semua proposal
-
-        // $proposals = $query->get();
-        $proposals = $query->paginate(5)->withQueryString();
-
-        // 🔹 Hitung status cair dinamis (tanpa ubah kolom status di DB)
-        foreach ($proposals as $p) {
-            $totalCair = $p->pencairan->sum('jumlah_dana');
-            $totalAnggaran = (float) $p->total_anggaran;
-
-            if ($totalAnggaran <= 0) {
-                $p->status_cair = 'Belum Dicairkan';
-                continue;
-            }
-
-            if ($totalCair >= $totalAnggaran) {
-                $p->status_cair = 'Dicairkan Penuh';
-            } elseif ($totalCair > 0) {
-                $p->status_cair = 'Dicairkan Sebagian';
-            } else {
-                $p->status_cair = 'Belum Dicairkan';
-            }
+        $query = Access::proposals(auth()->user())->with(['departemen', 'user', 'items', 'pencairan', 'approval_flows'])->latest();
+        if (in_array(request('jenis'), ['barang', 'acara', 'maintenance'])) {
+            $query->where('jenis', request('jenis'));
         }
 
-        return view('backend.proposal.index', compact('proposals', 'user'));
+        return view('backend.proposal.index', ['proposals' => $query->paginate(10)->withQueryString(), 'user' => auth()->user()]);
     }
 
     public function show($id)
     {
-        $proposal = \App\Models\Proposal::with([
-            'user',
-            'departemen',
-            'items',
-            'pencairan.rekening',
-            'approval_flows.approver',
-            'nota_penggunaan',
-            'pengembalianDana',  // tambahkan ini
-        ])->findOrFail($id);
+        $proposal = Proposal::with(['user', 'departemen', 'items', 'pencairan.rekening', 'approval_flows.approver', 'nota_penggunaan', 'pengembalianDana'])->findOrFail($id);
+        Access::viewProposal(auth()->user(), $proposal);
+        $b = app(FinancialBalance::class)->values($proposal, false);
 
-        // Total dana dicairkan
-        $totalCair = $proposal->pencairan->sum('jumlah_dana');
-        $totalDigunakan = $proposal->nota_penggunaan->sum('jumlah');
-        $totalRefund = $proposal->pengembalianDana->sum('jumlah');
-
-        $sisaDana = $totalCair - $totalDigunakan - $totalRefund;
-
-        return view('backend.proposal.show', compact(
-            'proposal',
-            'totalCair',
-            'totalDigunakan',
-            'totalRefund',
-            'sisaDana'
-        ));
+        return view('backend.proposal.show', ['proposal' => $proposal, 'totalCair' => $b['paid'] / 100, 'totalDigunakan' => $b['receipts'] / 100, 'totalRefund' => $b['refunds'] / 100, 'sisaDana' => $b['remaining'] / 100]);
     }
 
     public function create()
     {
-        $user = Auth::user();
+        $options = Access::departments(auth()->user())->orderBy('nama_departemen')->get();
+        if (in_array(auth()->user()->role, ['karyawan', 'departemen_head'])) {
+            abort_if($options->isEmpty(), 422, 'Akun belum ditempatkan pada departemen. Hubungi admin.');
 
-        // Jika user punya role 'karyawan', otomatis pakai departemen dia
-        if ($user->role === 'karyawan' && $user->departemen_id) {
-            $departemen = Departemen::find($user->departemen_id);
-            return view('backend.proposal.create', compact('departemen'));
+            return view('backend.proposal.create', ['departemen' => $options->first()]);
         }
 
-        // Jika admin atau role lain, tampilkan dropdown
-        $departemens = Departemen::orderBy('nama_departemen')->get();
-        return view('backend.proposal.create', compact('departemens'));
+        return view('backend.proposal.create', ['departemens' => $options]);
+    }
+
+    private function data(Request $request, ?Proposal $proposal = null): array
+    {
+        $jenis = $proposal?->jenis ?? $request->input('jenis');
+        if ($request->filled('total_anggaran_manual')) {
+            $request->merge(['total_anggaran_manual' => Money::normalize($request->input('total_anggaran_manual'))]);
+        }
+        if (is_array($request->input('items'))) {
+            $request->merge(['items' => array_map(function ($i) {
+                if (! is_array($i)) {
+                    return $i;
+                }
+                if (isset($i['anggaran']) && $i['anggaran'] !== '') {
+                    $i['anggaran'] = Money::normalize($i['anggaran']);
+                }
+
+                return $i;
+            }, $request->input('items'))]);
+        }
+        $rules = ['judul' => 'required|string|max:150', 'tujuan' => 'nullable|string|max:10000', 'tanggal_pengajuan' => 'required|date',
+            'lampiran' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048', 'tanggal_acara' => 'nullable|date', 'lokasi_acara' => 'nullable|string|max:255', 'keterangan' => 'nullable|string|max:10000'];
+        if (! $proposal) {
+            $rules['jenis'] = 'required|in:barang,maintenance,acara';
+        }
+        if (in_array($jenis, ['barang', 'maintenance'])) {
+            $rules += ['items' => 'required|array|min:1|max:100',
+                'items.*.nama_barang' => 'required|string|max:255', 'items.*.anggaran' => 'required|numeric|decimal:0,2|min:0.01|max:9999999999999.99',
+                'items.*.merk_tipe' => 'nullable|string|max:255', 'items.*.jumlah' => 'nullable|integer|min:1|max:1000000', 'items.*.tujuan_pembelian' => 'nullable|string|max:5000'];
+        } else {
+            $rules['total_anggaran_manual'] = 'required|numeric|decimal:0,2|min:0.01|max:9999999999999.99';
+        }
+
+        return $request->validate($rules);
+    }
+
+    private function total(array $data, string $jenis): string
+    {
+        $cents = in_array($jenis, ['barang', 'maintenance']) ? array_sum(array_map(fn ($i) => Budgets::cents($i['anggaran']), $data['items'])) : Budgets::cents($data['total_anggaran_manual']);
+        if ($cents > 999999999999999) {
+            throw ValidationException::withMessages(['jumlah' => 'Total nominal terlalu besar.']);
+        }
+
+        return Budgets::amount($cents);
+    }
+
+    private function items(Proposal $proposal, array $data): void
+    {
+        // Individual deletes fire audit events; database bulk deletes do not.
+        foreach ($proposal->items()->get() as $item) {
+            $item->delete();
+        }
+        foreach ($data['items'] ?? [] as $item) {
+            $proposal->items()->create($item);
+        }
+    }
+
+    private function flows(Proposal $proposal, array $approvers): void
+    {
+        foreach ($proposal->approval_flows()->get() as $flow) {
+            $flow->delete();
+        }
+        $order = 1;
+        foreach ($approvers as $stage => $user) {
+            ApprovalProposal::create(['proposal_id' => $proposal->id, 'approver_id' => $user->id, 'tahap' => $stage, 'urutan' => $order++, 'status' => 'pending']);
+        }
+        $first = reset($approvers);
+        app(NotificationService::class)->queue($first->nohp, WaTemplate::proposalBaru($first->name, $proposal->departemen->nama_departemen, $proposal->judul, $proposal->total_anggaran), 'Proposal menunggu persetujuan', $first->id);
     }
 
     public function store(Request $request)
     {
-        $user = Auth::user();
-
-        // Tentukan departemen
-        $departemenId = $user->role === 'karyawan'
-            ? $user->departemen_id
-            : $request->departemen_id;
-
-        // 🔴 DEBUG: Log data yang diterima
-        \Log::info('=== STORE PROPOSAL - DATA DITERIMA ===');
-        \Log::info('Jenis: ' . $request->jenis);
-        \Log::info('Judul: ' . $request->judul);
-        \Log::info('Items Count: ' . count($request->items ?? []));
-        \Log::info('Items[0]:', ['value' => $request->items[0] ?? 'TIDAK ADA']);
-        \Log::info('Total Manual: ' . $request->total_anggaran_manual);
-
-        // 🔴 BERSIHKAN DATA DI AWAL SEBELUM VALIDASI
-        // Bersihkan total anggaran manual
-        if ($request->filled('total_anggaran_manual')) {
-            $cleanAnggaran = preg_replace('/[^0-9]/', '', $request->total_anggaran_manual);
-            $request->merge(['total_anggaran_manual' => $cleanAnggaran]);
-            \Log::info('Total Anggaran Manual Dibersihkan: ' . $cleanAnggaran);
-        }
-
-        // ✅ PERBAIKAN KRUSIAL UNTUK MAINTENANCE: Filter items SEBELUM validasi
-        if (in_array($request->jenis, ['barang', 'maintenance']) && $request->filled('items')) {
-            $cleanItems = [];
-
-            foreach ($request->items as $item) {
-                // Ambil nilai dengan fallback aman
-                $namaBarang = trim($item['nama_barang'] ?? '');
-                $anggaranRaw = $item['anggaran'] ?? '';
-
-                // Bersihkan anggaran dari format non-digit
-                $anggaranClean = preg_replace('/[^0-9]/', '', $anggaranRaw);
-
-                // ✅ HANYA SIMPAN ITEM YANG VALID (nama_barang & anggaran terisi)
-                if (!empty($namaBarang) && !empty($anggaranClean) && $anggaranClean != '0') {
-                    $cleanItems[] = [
-                        'nama_barang' => $namaBarang,
-                        'merk_tipe' => trim($item['merk_tipe'] ?? ''),
-                        'jumlah' => trim($item['jumlah'] ?? ''),
-                        'tujuan_pembelian' => trim($item['tujuan_pembelian'] ?? ''),
-                        'anggaran' => $anggaranClean,
-                    ];
-                    \Log::info("✓ Item valid: {$namaBarang} - Rp {$anggaranClean}");
-                } else {
-                    \Log::warning("✗ Item di-SKIP: nama_barang='{$namaBarang}', anggaran='{$anggaranClean}'");
-                }
-            }
-
-            // ✅ GANTI REQUEST DENGAN DATA YANG SUDAH DIBERSIHKAN
-            $request->merge(['items' => $cleanItems]);
-            \Log::info('Total item valid setelah filtering: ' . count($cleanItems));
-
-            // ✅ VALIDASI: Minimal 1 item valid untuk barang/maintenance
-            if (count($cleanItems) === 0) {
-                \Log::error('❌ TIDAK ADA ITEM VALID!');
-                return back()->withErrors([
-                    'items' => 'Minimal harus ada 1 item yang diisi dengan lengkap (Nama Alat dan Anggaran)!'
-                ])->withInput();
-            }
-        }
-
-        // 🔹 Validasi dinamis - SEKARANG DATA SUDAH BERSIH!
-        $rules = [
-            'judul' => 'required|string|max:150',
-            'tujuan' => 'nullable|string',
-            'tanggal_pengajuan' => 'required|date',
-            'lampiran' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048',
-            'jenis' => 'required|in:barang,maintenance,acara',
-        ];
-
-        if ($user->role !== 'karyawan') {
-            $rules['departemen_id'] = 'required|exists:departemen,id';
-        }
-
-        // Validasi berdasarkan jenis
-        if (in_array($request->jenis, ['barang', 'maintenance'])) {
-            $rules = array_merge($rules, [
-                'items' => 'required|array|min:1',
-                'items.*.nama_barang' => 'required|string|max:255',
-                'items.*.anggaran' => 'required|numeric|min:1',
-            ]);
-        } elseif ($request->jenis === 'acara') {
-            $rules['total_anggaran_manual'] = 'required|numeric|min:1';
-        }
-
-        // 🔴 Custom error messages
-        $messages = [
-            'items.required' => 'Minimal harus ada 1 item yang diisi!',
-            'items.min' => 'Minimal harus ada 1 item yang diisi!',
-            'items.*.nama_barang.required' => 'Nama barang/alat wajib diisi!',
-            'items.*.anggaran.required' => 'Anggaran wajib diisi!',
-            'items.*.anggaran.numeric' => 'Anggaran harus berupa angka!',
-            'items.*.anggaran.min' => 'Anggaran minimal Rp 1!',
-            'total_anggaran_manual.required' => 'Total anggaran wajib diisi!',
-            'total_anggaran_manual.numeric' => 'Total anggaran harus berupa angka!',
-            'total_anggaran_manual.min' => 'Total anggaran minimal Rp 1!',
-        ];
-
-        $request->validate($rules, $messages);
-
-        DB::transaction(function () use ($request, $departemenId, $user) {
-            // Simpan lampiran jika ada
-            $lampiranPath = $request->hasFile('lampiran')
-                ? $request->file('lampiran')->store('proposal_lampiran', 'public')
-                : null;
-
-            // Hitung total
-            if (in_array($request->jenis, ['barang', 'maintenance'])) {
-                $total = collect($request->items)->sum('anggaran');
-                \Log::info('Total dari Items: ' . $total);
-            } else {
-                $total = (int) $request->total_anggaran_manual;
-                \Log::info('Total Manual: ' . $total);
-            }
-
-            // Simpan Proposal
-            $proposal = Proposal::create([
-                'user_id' => $user->id,
-                'departemen_id' => $departemenId,
-                'jenis' => $request->jenis,
-                'judul' => $request->judul,
-                'tujuan' => $request->tujuan,
-                'tanggal_pengajuan' => $request->tanggal_pengajuan,
-                'tanggal_acara' => $request->tanggal_acara ?? null,
-                'lokasi_acara' => $request->lokasi_acara ?? null,
-                'keterangan' => $request->keterangan ?? null,
-                'total_anggaran' => $total,
-                'lampiran' => $lampiranPath,
-                'status' => 'diajukan',
-            ]);
-
-            \Log::info('Proposal berhasil disimpan dengan ID: ' . $proposal->id);
-
-            // Jika barang/maintenance → simpan item
-            if (in_array($request->jenis, ['barang', 'maintenance'])) {
-                foreach ($request->items as $index => $item) {
-                    \Log::info('Menyimpan Item ' . $index . ': ' . $item['nama_barang'] . ' - ' . $item['anggaran']);
-
-                    ProposalItem::create([
-                        'proposal_id' => $proposal->id,
-                        'nama_barang' => $item['nama_barang'],
-                        'merk_tipe' => $item['merk_tipe'] ?? null,
-                        'jumlah' => $item['jumlah'] ?? null,
-                        'tujuan_pembelian' => $item['tujuan_pembelian'] ?? null,
-                        'anggaran' => $item['anggaran'],
-                    ]);
-                }
-                \Log::info('Total ' . count($request->items) . ' item berhasil disimpan');
-            }
-
-            // 🔹 Alur approval
-            $departemen = Departemen::with('grup')->find($departemenId);
-            $departemenHead = User::where('role', 'departemen_head')
-                ->where('departemen_id', $departemenId)
-                ->first();
-            $groupHead = $departemen && $departemen->grup_id
-                ? User::where('role', 'group_head')
-                    ->where('grup_id', $departemen->grup_id)
-                    ->first()
-                : null;
-            $seniorPastor = User::where('role', 'gembala')->first();
-
-            $urutan = 1;
-
-            // 🔹 Buat approval flow untuk Departemen Head
-            if ($departemenHead) {
-                ApprovalProposal::create([
-                    'proposal_id' => $proposal->id,
-                    'approver_id' => $departemenHead->id,
-                    'tahap' => 'departemen_head',
-                    'status' => 'pending',
-                    'urutan' => $urutan++,
-                ]);
-                \Log::info('Approval Departemen Head dibuat untuk: ' . $departemenHead->name);
-            }
-
-            // 🔹 Buat approval flow untuk Group Head
-            if ($groupHead) {
-                ApprovalProposal::create([
-                    'proposal_id' => $proposal->id,
-                    'approver_id' => $groupHead->id,
-                    'tahap' => 'group_head',
-                    'status' => 'pending',
-                    'urutan' => $urutan++,
-                ]);
-                \Log::info('Approval Group Head dibuat untuk: ' . $groupHead->name);
-            }
-
-            // 🔹 Buat approval flow untuk Gembala/Senior Pastor
-            if ($seniorPastor) {
-                ApprovalProposal::create([
-                    'proposal_id' => $proposal->id,
-                    'approver_id' => $seniorPastor->id,
-                    'tahap' => 'gembala',
-                    'status' => 'pending',
-                    'urutan' => $urutan++,
-                ]);
-                \Log::info('Approval Gembala dibuat untuk: ' . $seniorPastor->name);
-            }
-
-            // 🔔 Kirim notifikasi WA ke Departemen Head saat proposal baru diajukan
-            if ($departemenHead && $departemenHead->nohp) {
-                $pesan = \App\Services\WaTemplate::proposalBaru($departemenHead->name, $departemen->nama_departemen, $proposal->judul, $proposal->total_anggaran);
-
-                $this->sendViaFonnte($departemenHead->nohp, $pesan);
-                \Log::info('Notifikasi WA dikirim ke: ' . $departemenHead->nohp);
-            }
-        });
-
-        \Log::info('=== PROPOSAL BERHASIL DIBUAT ===');
-
-        return redirect()
-            ->route('admin.proposal.index')
-            ->with('success', 'Proposal berhasil dibuat dan dikirim untuk persetujuan.');
-    }
-
-    public function uploadNota(Request $request, $id)
-    {
-        $proposal = Proposal::findOrFail($id);
-
-        // Pastikan hanya pemilik proposal
-        if (Auth::id() !== $proposal->user_id) {
-            return back()->with('error', 'Anda tidak memiliki izin untuk mengunggah nota.');
-        }
-
-        // Pastikan status dicairkan
-        if (!in_array($proposal->status, ['dicairkan', 'dicairkan_sebagian'])) {
-            return back()->with('error', 'Hanya proposal yang sudah dicairkan yang dapat mengunggah nota.');
-        }
-
-        // Validasi dynamic array
-        $request->validate([
-            'nota' => 'required|array|min:1',
-            'nota.*.file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:2048',
-            'nota.*.jumlah' => 'required|numeric|min:1',
-            'nota.*.keterangan' => 'nullable|string|max:255',
-        ]);
-
-        DB::beginTransaction();
-
+        $data = $this->data($request);
+        $departmentId = in_array($request->user()->role, ['karyawan', 'departemen_head']) ? $request->user()->departemen_id : $request->input('departemen_id');
+        $department = Access::departments($request->user())->findOrFail($departmentId);
+        $approvers = app(ProposalApprovers::class)->forDepartment($department);
+        $path = null;
         try {
-            foreach ($request->nota as $n) {
-                $path = $n['file']->store('nota_penggunaan', 'public');
-
-                NotaPenggunaanProposal::create([
-                    'proposal_id' => $proposal->id,
-                    'file_nota' => $path,
-                    'jumlah' => $n['jumlah'],
-                    'keterangan' => $n['keterangan'] ?? null,
-                ]);
-            }
-
-            DB::commit();
-
-            return back()->with('success', 'Semua nota berhasil diunggah.');
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return back()->with('error', 'Upload gagal. Silakan coba lagi.');
+            DB::transaction(function () use ($request, $data, $department, $approvers, &$path) {
+                app(Budgets::class)->ensureOpen((int) substr($data['tanggal_pengajuan'], 0, 4));
+                Departemen::whereKey($department->id)->lockForUpdate()->firstOrFail();
+                $path = $request->file('lampiran')?->store('proposal_lampiran', 'local');
+                $proposal = Proposal::create(collect($data)->except(['items', 'lampiran', 'total_anggaran_manual'])->all() + [
+                    'user_id' => $request->user()->id, 'departemen_id' => $department->id, 'total_anggaran' => $this->total($data, $data['jenis']), 'lampiran' => $path, 'status' => 'diajukan']);
+                $this->items($proposal, $data);
+                $this->flows($proposal, $approvers);
+            }, 3);
+        } catch (\Throwable $e) {
+            if ($path) {
+                Storage::disk('local')->delete($path);
+            }throw $e;
         }
+
+        return redirect()->route('admin.proposal.index')->with('success', 'Proposal diajukan. Status notifikasi dapat dipantau oleh admin/keuangan.');
     }
 
     public function edit($id)
     {
         $proposal = Proposal::with('items')->findOrFail($id);
+        Access::editProposal(auth()->user(), $proposal);
 
-        if (in_array($proposal->status, ['dicairkan', 'dicairkan_sebagian'])) {
-            return redirect()
-                ->route('admin.proposal.index')
-                ->with('error', 'Proposal yang sudah dicairkan tidak dapat diedit.');
-        }
-
-        $departemen = Departemen::orderBy('nama_departemen')->get();
-        return view('backend.proposal.edit', compact('proposal', 'departemen'));
+        return view('backend.proposal.edit', ['proposal' => $proposal, 'departemen' => Access::departments(auth()->user())->get()]);
     }
 
     public function update(Request $request, $id)
     {
-        $proposal = Proposal::with('approval_flows', 'departemen')->findOrFail($id);
-
-        if ($proposal->status === 'dicairkan') {
-            return redirect()
-                ->route('admin.proposal.index')
-                ->with('error', 'Proposal yang sudah dicairkan tidak dapat diubah.');
-        }
-
-        // 🔹 Hanya karyawan yang boleh revisi
-        if ($proposal->status === 'revisi' && Auth::user()->role !== 'karyawan') {
-            return back()->with('error', 'Hanya karyawan yang dapat memperbarui proposal revisi.');
-        }
-
-        /**
-         * 🔹 Bersihkan format rupiah sebelum validasi
-         * Hapus semua karakter selain angka agar lolos numeric
-         */
-        if ($request->filled('total_anggaran_manual')) {
-            $request->merge([
-                'total_anggaran_manual' => preg_replace('/[^0-9]/', '', $request->total_anggaran_manual),
-            ]);
-        }
-
-        if ($request->filled('items')) {
-            $items = $request->items;
-            foreach ($items as &$item) {
-                if (isset($item['anggaran'])) {
-                    $item['anggaran'] = preg_replace('/[^0-9]/', '', $item['anggaran']);
+        $stub = Proposal::findOrFail($id);
+        Access::editProposal($request->user(), $stub);
+        $data = $this->data($request, $stub);
+        $path = null;
+        try {
+            DB::transaction(function () use ($request, $stub, $data, &$path) {
+                app(Budgets::class)->ensureOpen((int) substr($data['tanggal_pengajuan'], 0, 4));
+                app(Budgets::class)->ensureOpen((int) substr($stub->tanggal_pengajuan, 0, 4));
+                Departemen::whereKey($stub->departemen_id)->lockForUpdate()->firstOrFail();
+                $proposal = Proposal::lockForUpdate()->findOrFail($stub->id);
+                Access::editProposal($request->user(), $proposal);
+                $approvers = app(ProposalApprovers::class)->forDepartment($proposal->departemen);
+                $oldPath = $proposal->lampiran;
+                $path = $request->file('lampiran')?->store('proposal_lampiran', 'local');
+                $proposal->update(collect($data)->except(['items', 'lampiran', 'total_anggaran_manual'])->all() + [
+                    'total_anggaran' => $this->total($data, $proposal->jenis), 'lampiran' => $path ?? $oldPath, 'status' => 'diajukan']);
+                $this->items($proposal, $data);
+                $this->flows($proposal, $approvers);
+                if ($path && $oldPath) {
+                    DB::afterCommit(fn () => Storage::disk(Storage::disk('local')->exists($oldPath) ? 'local' : 'public')->delete($oldPath));
                 }
-            }
-            $request->merge(['items' => $items]);
+            }, 3);
+        } catch (\Throwable $e) {
+            if ($path) {
+                Storage::disk('local')->delete($path);
+            }throw $e;
         }
 
-        $rules = [
-            'judul' => 'required|string|max:150',
-            'tujuan' => 'nullable|string',
-            'tanggal_pengajuan' => 'required|date',
-            'lampiran' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048',
-        ];
-
-        if (Auth::user()->role !== 'karyawan') {
-            $rules['departemen_id'] = 'required|exists:departemen,id';
-        }
-
-        if (in_array($proposal->jenis, ['barang', 'maintenance'])) {
-            $rules = array_merge($rules, [
-                'items' => 'required|array|min:1',
-                'items.*.nama_barang' => 'required|string',
-                'items.*.anggaran' => 'required|numeric|min:1',
-            ]);
-        } else {
-            $rules = array_merge($rules, [
-                'total_anggaran_manual' => 'required|numeric|min:1',
-            ]);
-        }
-
-        $request->validate($rules);
-
-        DB::transaction(function () use ($request, $proposal) {
-            $lampiranPath = $proposal->lampiran;
-            if ($request->hasFile('lampiran')) {
-                if ($lampiranPath)
-                    Storage::disk('public')->delete($lampiranPath);
-                $lampiranPath = $request->file('lampiran')->store('proposal_lampiran', 'public');
-            }
-
-            // 🔹 Hitung total anggaran sesuai jenis proposal
-            $total = in_array($proposal->jenis, ['barang', 'maintenance'])
-                ? collect($request->items)->sum('anggaran')
-                : (int) $request->total_anggaran_manual;
-
-            $proposal->update([
-                'departemen_id' => Auth::user()->role === 'karyawan'
-                    ? $proposal->departemen_id
-                    : $request->departemen_id,
-                'judul' => $request->judul,
-                'tujuan' => $request->tujuan,
-                'total_anggaran' => $total,
-                'tanggal_pengajuan' => $request->tanggal_pengajuan,
-                'lampiran' => $lampiranPath,
-            ]);
-
-            // 🔹 Hapus semua item lama dan simpan ulang
-            if (in_array($proposal->jenis, ['barang', 'maintenance'])) {
-                $proposal->items()->delete();
-
-                foreach ($request->items as $item) {
-                    ProposalItem::create([
-                        'proposal_id' => $proposal->id,
-                        'nama_barang' => $item['nama_barang'],
-                        'merk_tipe' => $item['merk_tipe'] ?? null,
-                        'jumlah' => $item['jumlah'] ?? null,
-                        'tujuan_pembelian' => $item['tujuan_pembelian'] ?? null,
-                        'anggaran' => $item['anggaran'],
-                    ]);
-                }
-            }
-
-            /**
-             * =============================
-             * LOGIKA KHUSUS UNTUK PROPOSAL REVISI
-             * =============================
-             */
-            if ($proposal->status === 'revisi') {
-                // Ambil flow yang terakhir menolak
-                $rejectedFlow = $proposal
-                    ->approval_flows
-                    ->where('status', 'ditolak')
-                    ->sortByDesc('urutan')
-                    ->first();
-
-                if ($rejectedFlow) {
-                    foreach ($proposal->approval_flows as $flow) {
-                        // Reset hanya tahap yang urutannya >= tahap penolak
-                        if ($flow->urutan >= $rejectedFlow->urutan) {
-                            $flow->update([
-                                'status' => 'pending',
-                                'catatan' => null,
-                                'tanggal_approve' => null,
-                            ]);
-                        }
-                    }
-                }
-
-                // Ubah status proposal menjadi diajukan ulang
-                $proposal->update(['status' => 'diajukan']);
-
-                // 🔔 Cari tahap yang sekarang pending pertama
-                $nextFlow = $proposal
-                    ->approval_flows()
-                    ->where('status', 'pending')
-                    ->orderBy('urutan')
-                    ->first();
-
-                if ($nextFlow && $nextFlow->approver && $nextFlow->approver->nohp) {
-                    $pesan = \App\Services\WaTemplate::proposalRevisi($nextFlow->approver->name, $proposal->judul);
-
-                    $this->sendViaFonnte($nextFlow->approver->nohp, $pesan);
-                }
-            }
-        });
-
-        return redirect()
-            ->route('admin.proposal.index')
-            ->with('success', 'Proposal berhasil diperbarui.');
-    }
-
-    /**
-     * Kirim WhatsApp via Fonnte (lihat App\Services\FonnteService)
-     */
-    private function sendViaFonnte($nohp, $pesan)
-    {
-        return app(\App\Services\FonnteService::class)->send($nohp, $pesan);
+        return redirect()->route('admin.proposal.index')->with('success', 'Proposal diperbarui dan seluruh tahapan approval diulang.');
     }
 
     public function destroy($id)
     {
-        $proposal = Proposal::findOrFail($id);
+        $stub = Proposal::findOrFail($id);
+        Access::editProposal(auth()->user(), $stub);
+        DB::transaction(function () use ($stub) {
+            app(Budgets::class)->ensureOpen((int) substr($stub->tanggal_pengajuan, 0, 4));
+            Departemen::whereKey($stub->departemen_id)->lockForUpdate()->firstOrFail();
+            $proposal = Proposal::lockForUpdate()->findOrFail($stub->id);
+            Access::editProposal(auth()->user(), $proposal);
+            foreach ($proposal->items()->get() as $item) {
+                $item->delete();
+            }
+            foreach ($proposal->approval_flows()->get() as $flow) {
+                $flow->delete();
+            }
+            $path = $proposal->lampiran;
+            $proposal->delete();
+            if ($path) {
+                DB::afterCommit(fn () => Storage::disk(Storage::disk('local')->exists($path) ? 'local' : 'public')->delete($path));
+            }
+        }, 3);
 
-        if (in_array($proposal->status, ['dicairkan', 'dicairkan_sebagian'])) {
-            return redirect()
-                ->route('admin.proposal.index')
-                ->with('error', 'Proposal yang sudah dicairkan tidak dapat dihapus.');
+        return back()->with('success', 'Proposal dihapus dan riwayat perubahan dicatat.');
+    }
+
+    public function uploadNota(Request $request, $id)
+    {
+        $stub = Proposal::findOrFail($id);
+        Access::viewProposal($request->user(), $stub);
+        abort_unless((int) $stub->user_id === (int) $request->user()->id, 403);
+        $data = $request->validate(['operation_id' => 'required|uuid', 'nota' => 'required|array|min:1|max:50', 'nota.*.file' => 'required|file|mimes:pdf,jpg,jpeg,png|max:2048',
+            'nota.*.jumlah' => 'required|numeric|decimal:0,2|min:0.01|max:9999999999999.99', 'nota.*.keterangan' => 'nullable|string|max:255']);
+        $paths = [];
+        try {
+            DB::transaction(function () use ($stub, $data, $request, &$paths) {
+                app(Budgets::class)->ensureOpen((int) substr($stub->tanggal_pengajuan, 0, 4));
+                Departemen::whereKey($stub->departemen_id)->lockForUpdate()->firstOrFail();
+                if (app(FinancialOperation::class)->replay($data['operation_id'], $request->user()->id, 'receipt-'.$stub->id, $data)) {
+                    return;
+                }
+                $proposal = Proposal::lockForUpdate()->findOrFail($stub->id);
+                abort_unless(in_array($proposal->status, ['dicairkan', 'dicairkan_sebagian']), 409, 'Proposal belum dicairkan.');
+                $total = array_sum(array_map(fn ($n) => Budgets::cents($n['jumlah']), $data['nota']));
+                if ($total > app(FinancialBalance::class)->values($proposal)['remaining']) {
+                    throw ValidationException::withMessages(['nota' => 'Total nota melebihi sisa dana setelah nota dan pengembalian sebelumnya.']);
+                }
+                foreach ($data['nota'] as $note) {
+                    $path = $note['file']->store('nota_penggunaan', 'local');
+                    $paths[] = $path;
+                    NotaPenggunaanProposal::create(['proposal_id' => $proposal->id, 'file_nota' => $path, 'jumlah' => $note['jumlah'], 'keterangan' => $note['keterangan'] ?? null]);
+                }
+                app(FinancialOperation::class)->complete($data['operation_id']);
+            }, 3);
+        } catch (\Throwable $e) {
+            Storage::disk('local')->delete($paths);
+            throw $e;
         }
 
-        if ($proposal->lampiran) {
-            Storage::disk('public')->delete($proposal->lampiran);
-        }
+        return back()->with('success', 'Nota berhasil disimpan.');
+    }
 
-        $proposal->delete();
+    public function requestRevision(Request $request, int $id)
+    {
+        $data = $request->validate(['alasan' => 'required|string|min:5|max:1000']);
+        $stub = Proposal::findOrFail($id);
+        DB::transaction(function () use ($stub, $data) {
+            app(Budgets::class)->ensureOpen((int) substr($stub->tanggal_pengajuan, 0, 4));
+            Departemen::whereKey($stub->departemen_id)->lockForUpdate()->firstOrFail();
+            $proposal = Proposal::lockForUpdate()->findOrFail($stub->id);
+            abort_if($proposal->pencairan()->exists(), 409, 'Proposal sudah dicairkan dan tidak dapat dikembalikan untuk revisi.');
+            $proposal->update(['status' => 'revisi']);
+            ActivityLog::create(['user_id' => auth()->id(), 'action' => 'proposal.revision_requested', 'subject_type' => 'proposal', 'subject_id' => (string) $proposal->id, 'after' => ['alasan' => $data['alasan']]]);
+            app(NotificationService::class)->queue($proposal->user->nohp,'Proposal #'.$proposal->id.' memerlukan revisi: '.$data['alasan'],'Permintaan revisi admin',$proposal->user_id);
+        }, 3);
 
-        return redirect()
-            ->route('admin.proposal.index')
-            ->with('success', 'Proposal berhasil dihapus.');
+        return back()->with('success','Proposal dikembalikan ke pemohon untuk revisi dan approval ulang.');
     }
 }

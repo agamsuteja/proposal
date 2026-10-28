@@ -4,388 +4,124 @@ namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
 use App\Models\ApprovalProposal;
+use App\Models\Departemen;
 use App\Models\Proposal;
 use App\Models\User;
-use Carbon\Carbon;
+use App\Services\DepartmentBudgetService as Budgets;
+use App\Services\NotificationService;
+use App\Services\WaTemplate;
+use App\Support\Access;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 
 class ApprovalProposalController extends Controller
 {
-    // =========================================================================
-    // INDEX — Daftar approval pending & history milik user yang login
-    // =========================================================================
     public function index()
     {
-        $user = Auth::user();
+        $q = ApprovalProposal::with(['proposal.user', 'proposal.departemen', 'proposal.items', 'proposal.approval_flows'])
+            ->where('approver_id', auth()->id())->whereHas('proposal', fn ($p) => $p->whereIn('departemen_id', Access::departments(auth()->user())->select('id')));
+        $pending = (clone $q)->where('status', 'pending')->get()->filter(fn ($f) => $f->proposal && in_array($f->proposal->status, ['diajukan', 'disetujui_mh', 'disetujui_gh']))->map(function ($f) {
+            $f->can_approve = $f->tahap === auth()->user()->role && ! $f->proposal->approval_flows->where('urutan', '<', $f->urutan)->contains(fn ($p) => $p->status !== 'disetujui');
+            $f->reason = $f->can_approve ? null : 'Menunggu persetujuan tahap sebelumnya.';
 
-        $query = ApprovalProposal::with([
-            'proposal.user',
-            'proposal.departemen',
-            'proposal.items',
-            'proposal.approval_flows',
-        ])->where('approver_id', $user->id);
-
-        // Filter berdasarkan role
-        if (in_array($user->role, ['departemen_head', 'karyawan'])) {
-            $query->whereHas('proposal', fn($q) => $q->where('departemen_id', $user->departemen_id));
-        } elseif ($user->role === 'group_head') {
-            $departemenIds = \App\Models\Departemen::where('grup_id', $user->grup_id)->pluck('id');
-            $query->whereHas('proposal', fn($q) => $q->whereIn('departemen_id', $departemenIds));
-        }
-
-        $pendingApprovals = $query
-            ->clone()
-            ->where('status', 'pending')
-            ->get()
-            ->filter(fn($flow) => $flow->proposal && $flow->proposal->approval_flows)
-            ->map(function ($flow) {
-                $flows = $flow->proposal->approval_flows->sortBy('urutan');
-                $prev = $flows->firstWhere('urutan', $flow->urutan - 1);
-                $flow->can_approve = !$prev || $prev->status === 'disetujui';
-                $flow->reason = !$flow->can_approve ? 'Menunggu Approval Sebelumnya' : null;
-                return $flow;
-            });
-
-        $historyApprovals = $query
-            ->clone()
-            ->whereIn('status', [
-                'disetujui',
-                'ditolak',
-                'disetujui_mh',
-                'disetujui_gh',
-                'disetujui_pastor',
-                'disetujui_senior_pastor',
-                'dicairkan',
-                'revisi',
-            ])
-            ->orderByDesc('updated_at')
-            ->paginate(10);
-
-        return view('backend.approval.index', compact('pendingApprovals', 'historyApprovals'));
-    }
-
-    // =========================================================================
-    // SHOW — Detail proposal untuk di-approve
-    // =========================================================================
-    public function show($id)
-    {
-        $proposal = Proposal::with([
-            'user',
-            'departemen',
-            'items',
-            'approval_flows.approver',
-        ])->findOrFail($id);
-
-        if (!$proposal->approval_flows || $proposal->approval_flows->isEmpty()) {
-            abort(404, 'Proposal tidak memiliki alur approval.');
-        }
-
-        $proposal->approval_flows = $proposal->approval_flows->sortBy('urutan')->values();
-        $userId = Auth::id();
-
-        $currentFlow = $proposal->approval_flows->firstWhere('approver_id', $userId);
-
-        if (!$currentFlow) {
-            abort(403, 'Anda tidak memiliki akses ke proposal ini.');
-        }
-
-        $prevFlow = $proposal->approval_flows->firstWhere('urutan', $currentFlow->urutan - 1);
-        $canApprove = !$prevFlow || $prevFlow->status === 'disetujui';
-
-        if (!$canApprove) {
-            session()->flash('warning', 'Menunggu persetujuan dari tahap sebelumnya sebelum Anda dapat menindaklanjuti proposal ini.');
-        }
-
-        return view('backend.approval.show', compact('proposal', 'currentFlow', 'canApprove'));
-    }
-
-    // =========================================================================
-    // UPDATE — Setujui atau tolak proposal
-    // =========================================================================
-    public function update(Request $request, $id)
-    {
-        $request->validate([
-            'status' => 'required|in:disetujui,ditolak',
-            'catatan' => 'nullable|string|max:1000',
-        ]);
-
-        $approval = null;
-        $proposal = null;
-
-        DB::transaction(function () use ($request, $id, &$approval, &$proposal) {
-            $approval = ApprovalProposal::findOrFail($id);
-            $proposal = $approval->proposal;
-
-            // Guard: jangan proses ulang jika sudah bukan pending
-            if ($approval->status !== 'pending') {
-                return;
-            }
-
-            $approval->update([
-                'status' => $request->status,
-                'catatan' => $request->catatan,
-                'tanggal_approve' => now(),
-            ]);
-
-            // DITOLAK → set proposal ke revisi
-            if ($request->status === 'ditolak') {
-                $proposal->update(['status' => 'revisi']);
-                return;
-            }
-
-            // DISETUJUI → cek apakah semua approval sudah selesai
-            $pendingCount = ApprovalProposal::where('proposal_id', $proposal->id)
-                ->where('status', 'pending')
-                ->count();
-
-            if ($pendingCount == 0) {
-                $proposal->update(['status' => 'disetujui_senior_pastor']);
-            } else {
-                if ($approval->tahap === 'departemen_head') {
-                    $proposal->update(['status' => 'disetujui_mh']);
-                } elseif ($approval->tahap === 'group_head') {
-                    $proposal->update(['status' => 'disetujui_gh']);
-                }
-            }
+            return $f;
         });
 
-        // Ambil data terbaru setelah transaction commit
-        $approval = ApprovalProposal::findOrFail($id);
-        $proposal = $approval->proposal->fresh();
-
-        if ($request->status === 'ditolak') {
-            $this->kirimNotifRevisiKePemohon($approval, $proposal);
-            return back()->with('success', 'Proposal dikembalikan untuk revisi.');
-        }
-
-        if ($request->status === 'disetujui') {
-            $this->kirimNotifWhatsApp($approval, $proposal);
-        }
-
-        return back()->with('success', 'Status proposal berhasil diperbarui!');
+        return view('backend.approval.index', ['pendingApprovals' => $pending, 'historyApprovals' => (clone $q)->whereIn('status', ['disetujui', 'ditolak'])->latest('updated_at')->paginate(10)]);
     }
 
-    // =========================================================================
-    // HISTORY — Riwayat approval per role
-    // =========================================================================
+    public function show($id)
+    {
+        $proposal = Proposal::with(['user', 'departemen', 'items', 'approval_flows.approver'])->findOrFail($id);
+        Access::viewProposal(auth()->user(), $proposal);
+        $flow = $proposal->approval_flows->firstWhere('approver_id', auth()->id());
+        abort_unless($flow || in_array(auth()->user()->role, ['admin', 'keuangan']), 403);
+        $can = $flow && $flow->status === 'pending' && $flow->tahap === auth()->user()->role && $proposal->status !== 'revisi'
+            && ! $proposal->approval_flows->where('urutan', '<', $flow->urutan)->contains(fn ($p) => $p->status !== 'disetujui');
+
+        return view('backend.approval.show', ['proposal' => $proposal, 'currentFlow' => $flow, 'canApprove' => $can]);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $data = $request->validate(['status' => 'required|in:disetujui,ditolak', 'catatan' => 'nullable|string|max:1000']);
+        $stub = ApprovalProposal::with('proposal')->findOrFail($id);
+        abort_unless((int) $stub->approver_id === (int) $request->user()->id, 403);
+        Access::viewProposal($request->user(), $stub->proposal);
+        DB::transaction(function () use ($request, $stub, $data) {
+            $budgets = app(Budgets::class);
+            $year = (int) substr($stub->proposal->tanggal_pengajuan, 0, 4);
+            $budgets->ensureOpen($year);
+            Departemen::whereKey($stub->proposal->departemen_id)->lockForUpdate()->firstOrFail();
+            $proposal = Proposal::lockForUpdate()->findOrFail($stub->proposal_id);
+            $flow = ApprovalProposal::lockForUpdate()->findOrFail($stub->id);
+            abort_unless((int) $flow->approver_id === (int) $request->user()->id && $flow->tahap === $request->user()->role, 403);
+            Access::viewProposal($request->user(), $proposal);
+            abort_unless(in_array($proposal->status, ['diajukan', 'disetujui_mh', 'disetujui_gh']) && $flow->status === 'pending', 409, 'Persetujuan sudah diproses atau proposal perlu revisi.');
+            if ($proposal->approval_flows()->where('urutan', '<', $flow->urutan)->where('status', '!=', 'disetujui')->exists()) {
+                throw ValidationException::withMessages(['approval' => 'Tahap sebelumnya belum disetujui.']);
+            }
+            $flows = $proposal->approval_flows()->orderBy('urutan')->get();
+            if ($data['status'] === 'disetujui' && $flows->pluck('tahap')->all() !== ['departemen_head', 'group_head', 'gembala']) {
+                throw ValidationException::withMessages(['approval' => 'Alur lama tidak lengkap. Pemohon harus merevisi dan mengajukan ulang.']);
+            }
+            if ($data['status'] === 'disetujui' && $flow->tahap === 'gembala' && Budgets::cents($proposal->total_anggaran) > $budgets->available($proposal->departemen_id, $year)) {
+                throw ValidationException::withMessages(['budget' => 'Budget belum cukup untuk mencadangkan proposal. Ajukan tambahan budget sebelum persetujuan akhir.']);
+            }
+            $flow->update(['status' => $data['status'], 'catatan' => $data['catatan'] ?? null, 'tanggal_approve' => now()]);
+            $proposal->update(['status' => $data['status'] === 'ditolak' ? 'revisi' : match ($flow->tahap) {
+                'departemen_head' => 'disetujui_mh','group_head' => 'disetujui_gh',default => 'disetujui_senior_pastor'
+            }]);
+            if ($data['status'] === 'ditolak') {
+                app(NotificationService::class)->queue($proposal->user->nohp, WaTemplate::proposalRevisi($proposal->user->name, $proposal->judul), 'Proposal memerlukan revisi', $proposal->user_id, 'proposal-reject-'.$flow->id.'-'.$flow->updated_at->timestamp);
+            } else {
+                $next = $proposal->approval_flows()->where('status', 'pending')->orderBy('urutan')->first();
+                if ($next) {
+                    app(NotificationService::class)->queue($next->approver->nohp, WaTemplate::proposalRevisi($next->approver->name, $proposal->judul), 'Proposal menunggu persetujuan', $next->approver_id, 'proposal-approve-'.$flow->id.'-'.$flow->updated_at->timestamp);
+                } else {
+                    foreach (User::where('role', 'keuangan')->where('is_active', 1)->get() as $finance) {
+                        app(NotificationService::class)->queue($finance->nohp, 'Proposal #'.$proposal->id.' '.$proposal->judul.' telah disetujui dan siap diproses keuangan.', 'Proposal disetujui', $finance->id, 'proposal-ready-'.$proposal->id.'-'.$flow->id.'-'.$finance->id);
+                    }
+                }
+            }
+        }, 3);
+
+        return back()->with('success', 'Keputusan disimpan. Status pengiriman pesan dicatat secara terpisah.');
+    }
+
     public function history(Request $request)
     {
-        $user = auth()->user();
-        $search = $request->search;
-        $statusFilter = $request->status;
+        $request->validate(['search' => 'nullable|string|max:150', 'status' => 'nullable|in:disetujui,ditolak,dicairkan']);
+        $q = Access::proposals($request->user())->with(['user', 'departemen', 'approval_flows']);
+        if (in_array($request->user()->role, ['departemen_head', 'group_head', 'gembala'])) {
+            $q->whereHas('approval_flows', fn ($f) => $f->where('approver_id', $request->user()->id)->where('status', $request->status === 'ditolak' ? 'ditolak' : 'disetujui'));
+        } else {
+            $q->whereIn('status', $request->status === 'ditolak' ? ['revisi', 'ditolak'] : ['disetujui_senior_pastor', 'dicairkan', 'dicairkan_sebagian']);
+        }
+        if ($request->status === 'dicairkan') {
+            $q->whereIn('status', ['dicairkan', 'dicairkan_sebagian']);
+        }
+        if ($request->filled('search')) {
+            $q->where(fn ($q) => $q->where('judul', 'like', '%'.$request->search.'%')->orWhereHas('user', fn ($u) => $u->where('name', 'like', '%'.$request->search.'%')));
+        }
 
-        $history = Proposal::with(['user', 'departemen', 'approval_flows'])
-            ->when($user->role === 'keuangan', function ($q) use ($statusFilter) {
-                $q->whereIn('status', ['disetujui_senior_pastor', 'dicairkan', 'selesai']);
-
-                if ($statusFilter === 'disetujui') {
-                    $q->where('status', 'disetujui_senior_pastor');
-                } elseif ($statusFilter === 'dicairkan') {
-                    $q->where('status', 'dicairkan');
-                }
-            })
-            ->when(in_array($user->role, ['departemen_head', 'group_head', 'gembala']), function ($q) use ($user, $statusFilter) {
-                $q->whereHas('approval_flows', function ($subQ) use ($user, $statusFilter) {
-                    $subQ->where('approver_id', $user->id);
-
-                    if ($statusFilter === 'disetujui') {
-                        $subQ->whereIn('status', [
-                            'disetujui',
-                            'disetujui_mh',
-                            'disetujui_gh',
-                            'disetujui_pastor',
-                            'disetujui_senior_pastor',
-                            'dicairkan',
-                        ]);
-                    } elseif ($statusFilter === 'ditolak') {
-                        $subQ->where('status', 'revisi');
-                    } else {
-                        $subQ->whereIn('status', [
-                            'disetujui',
-                            'disetujui_mh',
-                            'disetujui_gh',
-                            'disetujui_pastor',
-                            'disetujui_senior_pastor',
-                            'revisi',
-                            'dicairkan',
-                        ]);
-                    }
-                });
-            })
-            ->when($search, function ($q) use ($search) {
-                $q->where(function ($x) use ($search) {
-                    $x
-                        ->where('judul', 'like', "%$search%")
-                        ->orWhereHas('user', fn($u) => $u->where('name', 'like', "%$search%"));
-                });
-            })
-            ->orderByDesc('updated_at')
-            ->paginate(5);
-
-        return view('backend.approval.history', ['historyApprovals' => $history]);
+        return view('backend.approval.history', ['historyApprovals' => $q->latest('updated_at')->paginate(10)->withQueryString()]);
     }
 
-    // =========================================================================
-    // NOTIF KEUANGAN — Kirim WA ke tim keuangan (dipanggil via AJAX)
-    // =========================================================================
     public function notifKeuangan(Request $request, $proposalId)
     {
-        try {
-            // Hanya group_head yang boleh
-            if (Auth::user()->role !== 'group_head') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Hanya Group Head yang dapat mengirim notifikasi ini.',
-                ], 403);
-            }
-
-            $proposal = Proposal::with(['departemen', 'user'])->findOrFail($proposalId);
-            $sender = Auth::user();
-
-            // Cari user dengan role keuangan
-            $keuangan = User::where('role', 'keuangan')->first();
-
-            if (!$keuangan) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Akun tim keuangan tidak ditemukan di sistem.',
-                ], 404);
-            }
-
-            if (!$keuangan->nohp) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Nomor HP tim keuangan belum diisi di sistem.',
-                ], 404);
-            }
-
-            $judul = $proposal->judul;
-            $total = number_format($proposal->total_anggaran, 0, ',', '.');
-            $dept = $proposal->departemen->nama_departemen ?? '-';
-
-            $pesan = \App\Services\WaTemplate::konfirmasiDanaKeuangan($sender->name, $judul, $dept, $total);
-
-            $berhasil = $this->sendViaFonnte($keuangan->nohp, $pesan);
-
-            if ($berhasil) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Notifikasi WhatsApp berhasil dikirim ke tim keuangan.',
-                ]);
-            }
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal mengirim pesan WhatsApp. Silakan cek log server.',
-            ], 500);
-        } catch (\Exception $e) {
-            \Log::error('notifKeuangan error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Terjadi kesalahan server: ' . $e->getMessage(),
-            ], 500);
+        $proposal = Proposal::with(['departemen', 'user'])->findOrFail($proposalId);
+        Access::viewProposal($request->user(), $proposal);
+        abort_unless(in_array($proposal->status, ['disetujui_senior_pastor', 'dicairkan_sebagian']), 409);
+        $finances = User::where('role', 'keuangan')->where('is_active', 1)->get();
+        if ($finances->isEmpty()) {
+            return response()->json(['success' => false, 'message' => 'Belum ada akun keuangan aktif.'], 422);
         }
-    }
-
-    // =========================================================================
-    // PRIVATE HELPERS
-    // =========================================================================
-
-    /**
-     * Kirim WA ke approver berikutnya setelah disetujui
-     */
-    private function kirimNotifWhatsApp($approval, $proposal)
-    {
-        if (in_array($approval->status, ['ditolak', 'revisi'])) {
-            \Log::info('WA tidak dikirim karena proposal ditolak/revisi.');
-            return;
+        foreach ($finances as $finance) {
+            app(NotificationService::class)->queue($finance->nohp,'Mohon proses proposal #'.$proposal->id.' '.$proposal->judul,'Pengingat keuangan',$finance->id);
         }
 
-        $nextApprover = null;
-        $pesan = null;
-        $judul = $proposal->judul;
-        $total = number_format($proposal->total_anggaran, 0, ',', '.');
-
-        if ($approval->tahap === 'departemen_head') {
-            $nextApprover = User::where('role', 'group_head')
-                ->where('grup_id', $proposal->departemen->grup_id)
-                ->first();
-
-            if ($nextApprover) {
-                $pesan = \App\Services\WaTemplate::proposalMasukGroupHead($nextApprover->name, $proposal->departemen->nama_departemen, $judul, $total);
-            }
-        } elseif ($approval->tahap === 'group_head') {
-            $nextApprover = User::where('role', 'gembala')->first();
-
-            if ($nextApprover) {
-                $pesan = \App\Services\WaTemplate::proposalMenungguGembala($nextApprover->name, $proposal->departemen->nama_departemen, $judul, $total);
-            }
-        } elseif ($approval->tahap === 'gembala') {
-            $nextApprover = User::where('role', 'keuangan')->first();
-
-            if ($nextApprover) {
-                $pesan = \App\Services\WaTemplate::proposalSiapDicairkan($judul, $total);
-            }
-        }
-
-        if ($nextApprover && $nextApprover->nohp && $pesan) {
-            \Log::info("Mengirim WA ke {$nextApprover->name} ({$nextApprover->nohp})");
-            $this->sendViaFonnte($nextApprover->nohp, $pesan);
-        } else {
-            \Log::warning('Tidak bisa kirim WA: nextApprover=' . ($nextApprover ? 'found' : 'null')
-                . ', nohp=' . ($nextApprover ? $nextApprover->nohp : 'null'));
-        }
-    }
-
-    /**
-     * Kirim WA ke pemohon saat proposal diminta revisi
-     */
-    private function kirimNotifRevisiKePemohon($approval, $proposal)
-    {
-        try {
-            $pemohon = $proposal->user;
-            if (!$pemohon || !$pemohon->nohp)
-                return;
-
-            $judul = $proposal->judul;
-            $catatan = $approval->catatan ?: '-';
-
-            $pesan = \App\Services\WaTemplate::revisiKePemohon($pemohon->name, $judul, $catatan);
-
-            $this->sendViaFonnte($pemohon->nohp, $pesan);
-        } catch (\Exception $e) {
-            \Log::error('Gagal kirim WA revisi: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Kirim ulang notif ke Group Head setelah proposal direvisi & diajukan ulang
-     */
-    private function kirimUlangKeGroupHead($proposal)
-    {
-        $groupHead = User::where('role', 'group_head')
-            ->where('grup_id', $proposal->departemen->grup_id)
-            ->first();
-
-        if (!$groupHead || !$groupHead->nohp)
-            return;
-
-        $judul = $proposal->judul;
-        $total = number_format($proposal->total_anggaran, 0, ',', '.');
-
-        $pesan = \App\Services\WaTemplate::diajukanKembali($groupHead->name, $proposal->departemen->nama_departemen, $judul, $total);
-
-        $this->sendViaFonnte($groupHead->nohp, $pesan);
-    }
-
-    /**
-     * Kirim WhatsApp via Fonnte (lihat App\Services\FonnteService)
-     */
-    private function sendViaFonnte($nohp, $pesan)
-    {
-        return app(\App\Services\FonnteService::class)->send($nohp, $pesan);
+        return response()->json(['success' => true, 'message' => 'Permintaan notifikasi dicatat. Periksa status pengiriman pada menu Notifikasi.']);
     }
 }

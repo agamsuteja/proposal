@@ -247,7 +247,7 @@
                 <div class="pd-field" style="margin-top:.875rem">
                     <div class="pd-field-label"><i class="fas fa-paperclip fa-sm"></i> Lampiran</div>
                     <div class="pd-field-value">
-                        <a href="{{ asset('storage/'.$proposal->lampiran) }}" target="_blank" class="pd-btn-view">
+                        <a href="{{ route('admin.documents.show', ['path' => $proposal->lampiran]) }}" target="_blank" class="pd-btn-view">
                             <i class="fas fa-eye"></i> Lihat Lampiran
                         </a>
                     </div>
@@ -412,7 +412,7 @@
                             <td style="color:#6b7280">{{ $p->catatan ?? '-' }}</td>
                             <td style="text-align:center">
                                 @if($p->bukti_transfer)
-                                    <a href="{{ asset('storage/'.$p->bukti_transfer) }}" target="_blank" class="pd-btn-view">
+                                    <a href="{{ route('admin.documents.show', ['path' => $p->bukti_transfer]) }}" target="_blank" class="pd-btn-view">
                                         <i class="fas fa-eye"></i>
                                     </a>
                                 @else
@@ -479,7 +479,7 @@
                             <td>{{ $nota->keterangan ?? '-' }}</td>
                             <td class="td-money">Rp {{ number_format($nota->jumlah,0,',','.') }}</td>
                             <td style="text-align:center">
-                                <a href="{{ asset('storage/'.$nota->file_nota) }}" target="_blank" class="pd-btn-view">
+                                <a href="{{ route('admin.documents.show', ['path' => $nota->file_nota]) }}" target="_blank" class="pd-btn-view">
                                     <i class="fas fa-eye"></i>
                                 </a>
                             </td>
@@ -516,7 +516,7 @@
                 <i class="fas fa-upload" style="color:#7c3aed"></i> Upload Nota Baru
             </div>
             <form action="{{ route('admin.proposal.uploadNota', $proposal->id) }}" method="POST" enctype="multipart/form-data" id="form-nota">
-                @csrf
+                @csrf<input type="hidden" name="operation_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
                 <div id="nota-wrapper"></div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap">
                     <button type="button" class="pd-btn-add" onclick="tambahNota()">
@@ -588,7 +588,7 @@
             </div>
 
             <form action="{{ route('admin.pengembalian_dana.store') }}" method="POST" enctype="multipart/form-data" id="form-kembalikan">
-                @csrf
+                @csrf<input type="hidden" name="operation_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
                 <input type="hidden" name="proposal_id" value="{{ $proposal->id }}">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
                     <div>
@@ -793,4 +793,7 @@ function tambahNota() {
 if (document.getElementById('nota-wrapper')) tambahNota();
 </script>
 
+@if(auth()->user()->role==='admin' && !$proposal->pencairan()->exists())
+<div class="card p-3 mt-3"><details><summary>Kembalikan untuk revisi (admin)</summary><form method="post" action="{{ route('admin.proposal.request-revision',$proposal->id) }}">@csrf<label for="admin-revision-reason">Alasan permintaan revisi</label><textarea id="admin-revision-reason" name="alasan" required minlength="5" maxlength="1000" class="form-control mb-2"></textarea><button class="btn btn-warning">Minta revisi dan approval ulang</button></form></details></div>
+@endif
 @endsection

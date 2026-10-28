@@ -248,7 +248,7 @@
                 <tr>
                     <th><i class="fas fa-paperclip fa-sm" style="color:#c4b5fd;margin-right:5px"></i>Lampiran</th>
                     <td>
-                        <a href="{{ asset('storage/'.$proposal->lampiran) }}" target="_blank" class="pds-bukti-btn">
+                        <a href="{{ route('admin.documents.show', ['path' => $proposal->lampiran]) }}" target="_blank" class="pds-bukti-btn">
                             <i class="fas fa-eye"></i> Lihat Lampiran
                         </a>
                     </td>
@@ -435,7 +435,7 @@
                         <td class="td-main">{{ $nota->keterangan ?? '-' }}</td>
                         <td style="text-align:right" class="td-amount">Rp {{ number_format($nota->jumlah,0,',','.') }}</td>
                         <td style="text-align:center">
-                            <a href="{{ asset('storage/'.$nota->file_nota) }}" target="_blank" class="pds-bukti-btn">
+                            <a href="{{ route('admin.documents.show', ['path' => $nota->file_nota]) }}" target="_blank" class="pds-bukti-btn">
                                 <i class="fas fa-eye"></i> Lihat
                             </a>
                         </td>
@@ -572,7 +572,7 @@
   <div class="modal-dialog modal-dialog-centered modal-lg modal-fullscreen-sm-down">
     <div class="modal-content">
       <form action="{{ route('admin.pencairan.store') }}" method="POST" enctype="multipart/form-data" class="needs-validation" novalidate>
-        @csrf
+        @csrf<input type="hidden" name="operation_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
         <input type="hidden" name="proposal_id" value="{{ $proposal->id }}">
 
         {{-- HEADER --}}

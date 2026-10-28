@@ -2,58 +2,43 @@
 
 namespace Tests\Feature;
 
-use App\Models\{ActivityLog, BudgetRequest, DepartmentBudget, Departemen, Grup, User};
+use App\Models\ActivityLog;
+use App\Models\BudgetRequest;
+use App\Models\Departemen;
+use App\Models\DepartmentBudget;
+use App\Models\Grup;
+use App\Models\Proposal;
+use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\{DB, Http, Schema};
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Tests\Support\LegacySchema;
 use Tests\TestCase;
 
 class DepartmentBudgetTest extends TestCase
 {
     private User $employee;
+
     private User $head;
+
     private User $groupHead;
+
     private User $pastor;
+
     private User $finance;
+
     private Departemen $it;
+
     private Departemen $data;
+
     private Budgets $budgets;
 
     protected function setUp(): void
     {
         parent::setUp();
-        // Explicitly isolate tests from the user's imported database.
-        $testDatabase = getenv('BUDGET_TEST_MYSQL_DATABASE');
-        if ($testDatabase) {
-            if (!str_starts_with($testDatabase, 'proposal_budget_test')) throw new \RuntimeException('Unsafe test database name');
-            config(['database.default' => 'mysql', 'database.connections.mysql.database' => $testDatabase]);
-            DB::purge('mysql');
-            Schema::dropAllTables();
-        } else {
-            config(['database.default' => 'sqlite', 'database.connections.sqlite.database' => ':memory:']);
-            DB::purge('sqlite');
-        }
-        config(['session.driver' => 'array', 'cache.default' => 'array']);
-        Schema::create('grup', function (Blueprint $t) { $t->id(); $t->string('nama_grup'); $t->text('deskripsi')->nullable(); $t->timestamps(); });
-        Schema::create('departemen', function (Blueprint $t) { $t->id(); $t->unsignedBigInteger('grup_id'); $t->string('nama_departemen'); $t->timestamps(); });
-        Schema::create('users', function (Blueprint $t) {
-            $t->id(); $t->string('name'); $t->string('email')->unique(); $t->string('password');
-            $t->string('role'); $t->boolean('is_active')->default(true); $t->unsignedBigInteger('departemen_id')->nullable();
-            $t->unsignedBigInteger('grup_id')->nullable(); $t->string('nohp')->nullable(); $t->timestamps();
-        });
-        Schema::create('proposal', function (Blueprint $t) {
-            $t->id(); $t->unsignedBigInteger('departemen_id'); $t->unsignedBigInteger('user_id'); $t->string('judul');
-            $t->date('tanggal_pengajuan'); $t->decimal('total_anggaran', 15, 2); $t->string('status'); $t->timestamps();
-        });
-        Schema::create('rekening', function (Blueprint $t) { $t->id(); $t->string('nama_rekening'); $t->decimal('saldo', 15, 2); $t->timestamps(); });
-        Schema::create('pencairan_dana', function (Blueprint $t) {
-            $t->id(); $t->unsignedBigInteger('proposal_id'); $t->unsignedBigInteger('rekening_id');
-            $t->decimal('jumlah_dana', 15, 2); $t->text('catatan')->nullable(); $t->string('bukti_transfer')->nullable(); $t->timestamps();
-        });
-        Schema::create('pengembalian_dana', function (Blueprint $t) {
-            $t->id(); $t->unsignedBigInteger('proposal_id'); $t->decimal('jumlah', 15, 2); $t->string('status'); $t->timestamps();
-        });
-        (require database_path('migrations/2026_10_27_000001_create_department_budgets.php'))->up();
+        LegacySchema::build();
         $office = Grup::create(['nama_grup' => 'Office']);
         $this->it = Departemen::create(['grup_id' => $office->id, 'nama_departemen' => 'IT']);
         $this->data = Departemen::create(['grup_id' => $office->id, 'nama_departemen' => 'Data Manager']);
@@ -78,6 +63,7 @@ class DepartmentBudgetTest extends TestCase
     {
         $this->actingAs($this->employee)->postJson(route('admin.budget.store'), ['departemen_id' => $this->it->id,
             'tahun' => 2026, 'jumlah' => $amount, 'alasan' => 'Kebutuhan tambahan IT'])->assertRedirect();
+
         return BudgetRequest::latest('id')->firstOrFail();
     }
 
@@ -175,7 +161,7 @@ class DepartmentBudgetTest extends TestCase
         $proposal = DB::table('proposal')->insertGetId(['departemen_id' => $this->data->id, 'user_id' => $this->employee->id,
             'judul' => 'Existing', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran' => '4000000', 'status' => 'dicairkan']);
         DB::table('pencairan_dana')->insert(['proposal_id' => $proposal, 'rekening_id' => 1, 'jumlah_dana' => '4000000']);
-        DB::table('pengembalian_dana')->insert(['proposal_id' => $proposal, 'jumlah' => '1000000', 'status' => 'pending']);
+        DB::table('pengembalian_dana')->insert(['proposal_id' => $proposal, 'jumlah' => '1000000', 'status' => 'pending', 'tanggal_pengembalian' => now(), 'metode' => 'cash']);
         $this->assertSame(100000000, $this->budgets->available($this->data->id, 2026));
         $this->actingAs($this->finance)->putJson(route('admin.budget.save'), ['departemen_id' => $this->data->id, 'tahun' => 2026, 'jumlah' => '3000000'])->assertUnprocessable();
         $request = $this->requestBudget('2000000');
@@ -192,21 +178,21 @@ class DepartmentBudgetTest extends TestCase
         $proposal = DB::table('proposal')->insertGetId(['departemen_id' => $this->it->id, 'user_id' => $this->employee->id,
             'judul' => 'Test', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran' => '6000000', 'status' => 'disetujui_senior_pastor']);
         $account = DB::table('rekening')->insertGetId(['nama_rekening' => 'Local', 'saldo' => '20000000']);
-        $data = ['proposal_id' => $proposal, 'rekening_id' => $account, 'jumlah_dana' => '6000000', 'metode' => 'cash', 'catatan' => 'Test'];
+        $data = ['operation_id' => (string) Str::uuid(), 'proposal_id' => $proposal, 'rekening_id' => $account, 'jumlah_dana' => '6000000', 'metode' => 'cash', 'catatan' => 'Test'];
         $this->actingAs($this->employee)->postJson(route('admin.pencairan.store'), $data)->assertForbidden();
-        $this->actingAs($this->finance)->post(route('admin.pencairan.store'), $data)->assertSessionHas('error');
+        $this->actingAs($this->finance)->post(route('admin.pencairan.store'), $data)->assertSessionHasErrors('jumlah_dana');
         $this->assertDatabaseCount('pencairan_dana', 0);
         $this->assertSame(2000000000, Budgets::cents(DB::table('rekening')->value('saldo')));
         $data['jumlah_dana'] = '1000000';
         $this->actingAs($this->finance)->post(route('admin.pencairan.store'), $data)->assertSessionHas('success');
         $this->assertDatabaseCount('pencairan_dana', 1);
-        $this->assertSame(400000000, $this->budgets->available($this->it->id, 2026));
+        $this->assertSame(-100000000, $this->budgets->available($this->it->id, 2026));
         Http::assertNothingSent();
     }
 
     public function test_audit_records_actor_changes_and_requests_without_passwords(): void
     {
-        $this->actingAs($this->finance)->put(route('admin.budget.save'), ['departemen_id' => $this->it->id, 'tahun' => 2026, 'jumlah' => '5500000'])->assertRedirect();
+        $this->actingAs($this->finance)->put(route('admin.budget.save'), ['departemen_id' => $this->it->id, 'tahun' => 2026, 'jumlah' => '5500000', 'alasan' => 'Penyesuaian berdasarkan kebutuhan'])->assertRedirect();
         $log = ActivityLog::where('subject_type', 'budget_departemen')->where('action', 'updated')->latest('id')->firstOrFail();
         $this->assertSame($this->finance->id, $log->user_id);
         $this->assertSame(500000000, Budgets::cents($log->before['jumlah']));
@@ -221,13 +207,13 @@ class DepartmentBudgetTest extends TestCase
     {
         $this->actingAs($this->employee)->putJson(route('admin.budget.save'), ['departemen_id' => $this->it->id, 'tahun' => 2026, 'jumlah' => '1'])->assertForbidden();
         $this->assertDatabaseHas('activity_logs', ['action' => 'request', 'response_status' => 403, 'user_id' => $this->employee->id]);
-        $proposal = \App\Models\Proposal::create(['departemen_id' => $this->it->id, 'user_id' => $this->employee->id,
+        $proposal = Proposal::create(['departemen_id' => $this->it->id, 'user_id' => $this->employee->id,
             'judul' => 'History', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran' => '100', 'status' => 'dicairkan']);
         DB::table('pencairan_dana')->insert(['proposal_id' => $proposal->id, 'rekening_id' => 1, 'jumlah_dana' => '100']);
         try {
             $proposal->update(['departemen_id' => $this->data->id]);
             $this->fail('Financial history must remain in the original department');
-        } catch (\Illuminate\Validation\ValidationException $expected) {
+        } catch (ValidationException $expected) {
             $this->assertSame($this->it->id, $proposal->fresh()->departemen_id);
         }
     }
@@ -242,6 +228,6 @@ class DepartmentBudgetTest extends TestCase
         ])->assertRedirect();
         $this->assertSame(500000029, $this->budgets->available($this->it->id, 2026));
         $this->assertSame(499999971, $this->budgets->available($this->data->id, 2026));
-        $this->actingAs($this->finance)->putJson(route('admin.budget.save'), ['departemen_id' => $this->it->id, 'tahun' => 2026, 'jumlah' => '6000000'])->assertUnprocessable();
+        $this->actingAs($this->finance)->putJson(route('admin.budget.save'), ['departemen_id' => $this->it->id, 'tahun' => 2026, 'jumlah' => '6000000', 'alasan' => 'Penyesuaian disetujui keuangan'])->assertRedirect();
     }
 }

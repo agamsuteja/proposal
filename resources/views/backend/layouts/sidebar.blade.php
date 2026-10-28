@@ -2,7 +2,7 @@
 <aside class="sidenav navbar navbar-vertical navbar-expand-xs border-radius-lg fixed-start ms-2 bg-white my-2" id="sidenav-main">
   <div class="sidenav-header">
     <i class="fas fa-times p-3 cursor-pointer text-dark opacity-5 position-absolute end-0 top-0 d-none d-xl-none" id="iconSidenav"></i>
-    <a class="navbar-brand px-4 py-3 m-0" href="{{ route('admin.dashboard') }}">
+    <a class="navbar-brand px-4 py-3 m-0" href="{{ route(match(Auth::user()->role) { 'karyawan'=>'admin.proposal.index', 'departemen_head','group_head','gembala'=>'admin.approval.index', default=>'admin.dashboard' }) }}">
       <img src="{{ asset('assets/img/esc10.png') }}" class="navbar-brand-img" width="26" height="26" alt="main_logo">
       <span class="ms-1 text-sm text-dark fw-bold">ESC Proposal</span>
     </a>
@@ -15,6 +15,7 @@
       <li class="nav-item"><a class="nav-link text-dark {{ request()->routeIs('admin.budget.index') ? 'active bg-gradient-primary text-white' : '' }}" href="{{ route('admin.budget.index') }}"><i class="material-symbols-rounded">account_balance_wallet</i><span class="nav-link-text ms-1">Budget Departemen</span></a></li>
       <li class="nav-item"><a class="nav-link text-dark {{ request()->routeIs('admin.budget.requests') ? 'active bg-gradient-primary text-white' : '' }}" href="{{ route('admin.budget.requests') }}"><i class="material-symbols-rounded">add_card</i><span class="nav-link-text ms-1">Tambahan Budget</span></a></li>
       @if(in_array(Auth::user()->role, ['admin', 'keuangan']))
+      <li class="nav-item"><a class="nav-link text-dark {{ request()->routeIs('admin.notifications.*') ? 'active bg-gradient-primary text-white' : '' }}" href="{{ route('admin.notifications.index') }}"><i class="material-symbols-rounded">notifications</i><span class="nav-link-text ms-1">Status Notifikasi</span></a></li>
       <li class="nav-item"><a class="nav-link text-dark {{ request()->routeIs('admin.activity.index') ? 'active bg-gradient-primary text-white' : '' }}" href="{{ route('admin.activity.index') }}"><i class="material-symbols-rounded">history</i><span class="nav-link-text ms-1">Log Aktivitas</span></a></li>
       @endif
 

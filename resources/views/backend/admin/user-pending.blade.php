@@ -9,6 +9,7 @@
 
         <div class="card-body">
 
+            @if($errors->any())<div class="alert alert-danger">{{ $errors->first() }}</div>@endif
             @if (session('success'))
                 <div class="alert alert-success">{{ session('success') }}</div>
             @endif
@@ -40,7 +41,7 @@
                                 <td>
                                     <form action="{{ route('admin.user.approve', $u->id) }}" method="POST">
                                         @csrf
-                                        <button class="btn btn-success btn-sm">Setujui</button>
+                                        <button class="btn btn-success btn-sm" @disabled(!$u->registration_verified_at)>{{ $u->registration_verified_at ? 'Setujui' : 'Menunggu OTP' }}</button>
                                     </form>
                                 </td>
                             </tr>

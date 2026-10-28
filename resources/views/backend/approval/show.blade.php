@@ -201,7 +201,7 @@
                 <div class="ap-field" style="margin-top:.625rem">
                     <div class="lbl"><i class="fas fa-paperclip fa-sm"></i> Lampiran</div>
                     <div class="val">
-                        <a href="{{ asset('storage/'.$proposal->lampiran) }}" target="_blank"
+                        <a href="{{ route('admin.documents.show', ['path' => $proposal->lampiran]) }}" target="_blank"
                            style="background:#ede9fe;color:#5b21b6;border:none;border-radius:7px;font-size:12px;font-weight:700;padding:5px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;text-decoration:none">
                             <i class="fas fa-eye"></i> Lihat Dokumen
                         </a>

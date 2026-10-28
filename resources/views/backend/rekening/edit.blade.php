@@ -7,7 +7,8 @@
             <h5 class="fw-bold mb-0">✏️ Edit Rekening</h5>
         </div>
         <div class="card-body">
-            <form action="{{ route('admin.rekening.update', $rekening->id) }}" method="POST">
+            @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+<form action="{{ route('admin.rekening.update', $rekening->id) }}" method="POST">
                 @csrf
                 @method('PUT')
                 <div class="row mb-3">
@@ -34,7 +35,8 @@
                     <label class="form-label">Keterangan</label>
                     <textarea name="keterangan" class="form-control" rows="2">{{ old('keterangan', $rekening->keterangan) }}</textarea>
                 </div>
-                <button type="submit" class="btn btn-primary">Update</button>
+                <div class="mb-3"><label for="reconcile-reason">Alasan perubahan saldo (wajib jika saldo berubah)</label><input id="reconcile-reason" name="alasan" class="form-control" minlength="5" maxlength="1000" value="{{ old('alasan') }}"></div>
+<button type="submit" class="btn btn-primary">Update</button>
                 <a href="{{ route('admin.rekening.index') }}" class="btn btn-secondary">Batal</a>
             </form>
         </div>

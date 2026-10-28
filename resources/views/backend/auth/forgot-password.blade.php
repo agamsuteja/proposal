@@ -229,7 +229,8 @@
         </div>
       @endif
 
-      <form action="{{ route('admin.forgot.send') }}" method="POST">
+      @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+<form action="{{ route('admin.forgot.send') }}" method="POST">
         @csrf
 
         <div class="form-group">

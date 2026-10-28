@@ -170,7 +170,7 @@
                     <label class="ep-label"><i class="fas fa-paperclip fa-sm"></i> Lampiran Baru <span class="opt">(opsional)</span></label>
                     <input type="file" name="lampiran" class="ep-input" accept=".pdf,.jpg,.jpeg,.png">
                     @if($proposal->lampiran)
-                        <a href="{{ asset('storage/'.$proposal->lampiran) }}" target="_blank" class="ep-lampiran-link">
+                        <a href="{{ route('admin.documents.show', ['path' => $proposal->lampiran]) }}" target="_blank" class="ep-lampiran-link">
                             <i class="fas fa-eye"></i> Lihat lampiran lama
                         </a>
                     @endif
@@ -666,6 +666,24 @@ document.getElementById('ep-form').addEventListener('submit', function (e) {
         totalManualEl.value = totalManualEl.value.replace(/\D/g, '');
     }
 });
+
+// Disable hidden responsive fields before browser constraint validation, and mirror values.
+function syncResponsiveInputs() {
+    const mobile=isMobile();
+    document.querySelectorAll('#items_body input,#maint_body input').forEach(el=>el.disabled=mobile);
+    document.querySelectorAll('#mob_barang_list input,#mob_maint_list input').forEach(el=>el.disabled=!mobile);
+}
+document.getElementById('ep-form').addEventListener('input', function(event) {
+    const input=event.target;
+    if(!input.name || !input.name.startsWith('items['))return;
+    document.getElementsByName(input.name).forEach(other=>{if(other!==input)other.value=input.value;});
+});
+const inputObserver=new MutationObserver(syncResponsiveInputs);
+['items_body','maint_body','mob_barang_list','mob_maint_list'].forEach(id=>{
+    const element=document.getElementById(id);if(element)inputObserver.observe(element,{childList:true,subtree:true});
+});
+window.addEventListener('resize',()=>{syncResponsiveInputs();updateTotal();});
+syncResponsiveInputs();
 </script>
 
 @endsection

@@ -20,27 +20,29 @@ class FonnteService
     {
         $target = $this->normalizePhone($nohp);
 
-        if (!$target) {
+        if (! $target) {
             Log::error('Fonnte: nomor HP tidak valid', ['nohp' => $nohp]);
+
             return false;
         }
 
         $token = config('services.fonnte.token');
 
-        if (!$token) {
+        if (! $token) {
             Log::error('Fonnte: FONNTE_TOKEN belum diisi di .env (lalu jalankan php artisan config:clear)');
+
             return false;
         }
 
         try {
             Log::info('Fonnte: mengirim WA', [
-                'target'  => $target,
-                'preview' => mb_substr($pesan, 0, 50),
+                'target' => $target,
+                'length' => mb_strlen($pesan),
             ]);
 
             $payload = [
-                'target'      => $target,
-                'message'     => $pesan,
+                'target' => $target,
+                'message' => $pesan,
                 'countryCode' => '62',
             ];
 
@@ -59,18 +61,21 @@ class FonnteService
             // Fonnte membalas {"status": true, ...} jika sukses
             // dan {"status": false, "reason": "..."} jika gagal
             if ($response->successful() && is_array($data) && ($data['status'] ?? false) === true) {
-                Log::info('Fonnte: pesan diterima untuk dikirim ke ' . $target);
+                Log::info('Fonnte: pesan diterima untuk dikirim ke '.$target);
+
                 return true;
             }
 
             Log::error('Fonnte: gagal kirim', [
                 'target' => $target,
-                'http'   => $response->status(),
-                'body'   => $response->body(),
+                'http' => $response->status(),
+                'accepted' => false,
             ]);
+
             return false;
         } catch (\Throwable $e) {
-            Log::error('Fonnte: exception - ' . $e->getMessage());
+            Log::error('Fonnte: exception - '.$e->getMessage());
+
             return false;
         }
     }
@@ -88,11 +93,11 @@ class FonnteService
         }
 
         if (str_starts_with($n, '620')) {
-            $n = '62' . substr($n, 3);   // salah ketik "+62 0812..."
+            $n = '62'.substr($n, 3);   // salah ketik "+62 0812..."
         } elseif (str_starts_with($n, '0')) {
-            $n = '62' . substr($n, 1);   // 0812... -> 62812...
+            $n = '62'.substr($n, 1);   // 0812... -> 62812...
         } elseif (str_starts_with($n, '8')) {
-            $n = '62' . $n;              // 812... -> 62812...
+            $n = '62'.$n;              // 812... -> 62812...
         }
 
         $len = strlen($n);

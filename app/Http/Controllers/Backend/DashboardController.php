@@ -3,10 +3,10 @@
 namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Proposal;
 use App\Models\PencairanDana;
+use App\Models\Proposal;
 use App\Models\Rekening;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
@@ -28,14 +28,13 @@ class DashboardController extends Controller
 
         // 🔥 Total dana dicairkan per departemen
         $danaPerDepartemen = PencairanDana::join('proposal', 'pencairan_dana.proposal_id', '=', 'proposal.id')
-        ->join('departemen', 'proposal.departemen_id', '=', 'departemen.id')
-        ->select(
-            'departemen.nama_departemen',
-            DB::raw('SUM(pencairan_dana.jumlah_dana) as total_dana')
-        )
-        ->groupBy('departemen.nama_departemen')
-        ->get();
-
+            ->join('departemen', 'proposal.departemen_id', '=', 'departemen.id')
+            ->select(
+                'departemen.nama_departemen',
+                DB::raw('SUM(pencairan_dana.jumlah_dana) as total_dana')
+            )
+            ->groupBy('departemen.nama_departemen')
+            ->get();
 
         return view('backend.dashboard', compact(
             'totalProposalDisetujui',
@@ -43,5 +42,10 @@ class DashboardController extends Controller
             'totalDanaSemua',
             'danaPerDepartemen'
         ));
+    }
+
+    public function dataPencairan()
+    {
+        return response()->json(PencairanDana::selectRaw('DATE(created_at) AS tanggal, SUM(jumlah_dana) AS total')->groupByRaw('DATE(created_at)')->orderBy('tanggal')->get());
     }
 }

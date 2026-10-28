@@ -135,9 +135,9 @@
                         <label>Pilih Jenis Proposal <span class="req">*</span></label>
                         <select name="jenis" id="jenisProposal" required>
                             <option value="">— Pilih Jenis Proposal —</option>
-                            <option value="barang">Pengadaan Barang</option>
-                            <option value="acara">Kegiatan / Acara</option>
-                            <option value="maintenance">Maintenance Alat</option>
+                            <option value="barang" @selected(old('jenis',request('jenis')) === 'barang')>Pengadaan Barang</option>
+                            <option value="acara" @selected(old('jenis',request('jenis')) === 'acara')>Kegiatan / Acara</option>
+                            <option value="maintenance" @selected(old('jenis',request('jenis')) === 'maintenance')>Maintenance Alat</option>
                         </select>
                         <div class="pc-jenis-row">
                             <span style="font-size:11px;color:#6b7280;font-weight:600">Terpilih:</span>

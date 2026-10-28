@@ -2,29 +2,31 @@
 
 namespace App\Exports;
 
-use App\Models\Proposal;
-use App\Models\PencairanDana;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\FromView;
+use Maatwebsite\Excel\Concerns\WithCustomValueBinder;
+use PhpOffice\PhpSpreadsheet\Cell\Cell;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Cell\DefaultValueBinder;
 
-class LaporanExport implements FromView
+class LaporanExport extends DefaultValueBinder implements FromView, WithCustomValueBinder
 {
-    public function view(): View
-    {
-        $user = Auth::user();
-        $role = $user->role;
+    public function __construct(private Collection $data, private string $role) {}
 
-        if ($role === 'keuangan') {
-            $data = PencairanDana::with(['proposal.user', 'proposal.departemen', 'rekening'])->latest()->get();
-        } elseif (in_array($role, ['departemen_head', 'group_head', 'gembala'])) {
-            $data = Proposal::with(['user', 'departemen'])
-                ->whereIn('status', ['disetujui_pastor', 'disetujui_gh', 'disetujui_mh', 'revisi', 'ditolak', 'dicairkan'])
-                ->get();
-        } else {
-            $data = Proposal::with(['user', 'departemen'])->latest()->get();
+    public function bindValue(Cell $cell, $value): bool
+    {
+        if (is_string($value) && preg_match('/^[=+@-]/u', $value)) {
+            $cell->setValueExplicit($value, DataType::TYPE_STRING);
+
+            return true;
         }
 
-        return view('backend.laporan.export_excel', compact('data', 'role'));
+        return parent::bindValue($cell, $value);
+    }
+
+    public function view(): View
+    {
+        return view('backend.laporan.export_excel', ['data' => $this->data, 'role' => $this->role]);
     }
 }

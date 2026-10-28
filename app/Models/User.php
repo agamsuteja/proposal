@@ -21,7 +21,9 @@ class User extends Authenticatable
         'role',
         'is_active',
     ];
-    
+
+    protected $casts = ['registration_verified_at' => 'datetime'];
+
     protected $hidden = [
         'password',
         'remember_token',
@@ -39,7 +41,6 @@ class User extends Authenticatable
 
     public function grup()
     {
-        return $this->belongsTo(\App\Models\Grup::class, 'grup_id');
+        return $this->belongsTo(Grup::class, 'grup_id');
     }
-
 }

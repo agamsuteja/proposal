@@ -200,7 +200,8 @@
         </div>
       @endif
 
-      <form action="{{ route('admin.reset.submit') }}" method="POST">
+      @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+<form action="{{ route('admin.reset.submit') }}" method="POST">
         @csrf
         <input type="hidden" name="token" value="{{ $token }}">
 

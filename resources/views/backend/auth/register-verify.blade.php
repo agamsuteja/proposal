@@ -234,7 +234,8 @@
     </div>
     
     <div class="card-body">
-      <form action="{{ route('admin.register.verify.submit') }}" method="POST">
+      @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+<form action="{{ route('admin.register.verify.submit') }}" method="POST">
         @csrf
         <input type="hidden" name="email" value="{{ $email }}">
         
@@ -254,5 +255,8 @@
       </a>
     </div>
   </div>
+<div style="max-width:420px;margin:16px auto;padding:16px;background:white;border-radius:12px">
+<form method="post" action="{{ route('admin.register.resend') }}">@csrf
+<input type="hidden" name="email" value="{{ $email }}"><label for="resend-phone">Nomor WhatsApp saat mendaftar</label><input id="resend-phone" name="nohp" type="tel" required maxlength="20" class="form-control"><button type="submit" class="btn btn-secondary mt-2">Kirim ulang kode</button></form></div>
 </body>
 </html>

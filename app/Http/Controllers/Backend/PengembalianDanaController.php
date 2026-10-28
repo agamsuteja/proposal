@@ -3,286 +3,143 @@
 namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
-use App\Models\PengembalianDana;
-use App\Models\User;
-use App\Models\Rekening;
-use Barryvdh\DomPDF\Facade\Pdf;
-use App\Models\Proposal;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use App\Models\Departemen;
 use App\Models\Grup;
-
-
+use App\Models\PengembalianDana;
+use App\Models\Proposal;
+use App\Models\Rekening;
+use App\Models\User;
+use App\Services\DepartmentBudgetService as Budgets;
+use App\Services\FinancialBalance;
+use App\Services\FinancialOperation;
+use App\Services\NotificationService;
+use App\Support\Access;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class PengembalianDanaController extends Controller
 {
+    private function query(Request $request)
+    {
+        $request->validate(['status' => 'nullable|in:pending,diterima,ditolak', 'grup_id' => 'nullable|integer', 'tanggal_awal' => 'nullable|date', 'tanggal_akhir' => 'nullable|date|after_or_equal:tanggal_awal']);
+        $proposals = Access::proposals($request->user());
+        if ($request->filled('grup_id')) {
+            $proposals->whereHas('departemen', fn ($d) => $d->where('grup_id', $request->grup_id));
+        }
+
+        return PengembalianDana::with(['proposal.user.grup', 'proposal.departemen', 'rekening'])->whereIn('proposal_id', $proposals->select('id'))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->status))
+            ->when($request->filled('tanggal_awal'), fn ($q) => $q->whereDate('created_at', '>=', $request->tanggal_awal))
+            ->when($request->filled('tanggal_akhir'), fn ($q) => $q->whereDate('created_at', '<=', $request->tanggal_akhir));
+    }
 
     public function index(Request $request)
     {
-        $query = PengembalianDana::with(['proposal.user', 'rekening']);
+        $q = $this->query($request);
 
-        $grups = Grup::orderBy('nama_grup')->get();
-
-        $query = PengembalianDana::with(['proposal.user.grup','rekening']);
-
-        if ($request->grup_id) {
-            $query->whereHas('proposal.user', function ($q) use ($request) {
-                $q->where('grup_id', $request->grup_id);
-            });
-        }
-        
-
-
-        // Filter status
-        if ($request->status) {
-            $query->where('status', $request->status);
-        }
-
-        // Filter tanggal (untuk laporan)
-        if ($request->tanggal_awal && $request->tanggal_akhir) {
-            $query->whereBetween('created_at', [
-                $request->tanggal_awal . ' 00:00:00',
-                $request->tanggal_akhir . ' 23:59:59'
-            ]);
-        }
-
-        $data = $query->latest()->paginate(10);
-
-        // Hitung total laporan
-        $totalDiterima = (clone $query)
-            ->where('status', 'diterima')
-            ->sum('jumlah');
-
-
-
-
-        $rekening = [];
-
-        if (auth()->user()->role === 'keuangan') {
-            $rekening = Rekening::orderBy('nama_rekening')->get();
-        }
-
-
-        $rekening = Rekening::orderBy('nama_rekening')->get();
-
-        return view('backend.pengembalian_dana.index', compact(
-            'data',
-            'totalDiterima',
-            'grups'
-        ));
-        
-        
+        return view('backend.pengembalian_dana.index', ['data' => (clone $q)->latest()->paginate(10)->withQueryString(),
+            'totalDiterima' => (clone $q)->where('status', 'diterima')->sum('jumlah'),
+            'grups' => Grup::whereIn('id', Access::departments($request->user())->select('grup_id'))->get()]);
     }
 
-
-
-    /**
-     * Form pengembalian dana
-     */
-    public function create($proposalId)
+    public function create($proposal)
     {
-        $proposal = Proposal::with('rekening')->findOrFail($proposalId);
+        $p = Proposal::findOrFail($proposal);
+        Access::viewProposal(auth()->user(), $p);
+        abort_unless((int) $p->user_id === (int) auth()->id(), 403);
 
-        return view('pengembalian_dana.create', compact('proposal'));
+        return redirect()->route('admin.proposal.show', $p->id)->with('info', 'Gunakan formulir Pengembalian Dana pada detail proposal.');
     }
-
-    /**
-     * Simpan pengajuan pengembalian dana
-     */
-    public function store(Request $request)
-    {
-        $request->validate([
-            'proposal_id' => 'required|exists:proposal,id',
-            'jumlah' => 'required|numeric|min:1',
-            'metode' => 'required',
-            'bukti' => 'required_if:metode,transfer|nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
-            'catatan' => 'nullable|string',
-        ]);
-
-        $user = Auth::user();
-
-        DB::transaction(function () use ($request, $user) {
-
-            $buktiPath = null;
-
-            if ($request->hasFile('bukti')) {
-                $file = $request->file('bukti');
-                $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
-                $buktiPath = $file->storeAs('bukti_pengembalian', $filename, 'public');
-            }
-
-            $proposal = Proposal::with([
-                'pencairan',
-                'pengembalianDana'
-            ])->findOrFail($request->proposal_id);
-
-            $totalCair = $proposal->pencairan->sum('jumlah_dana');
-
-            $totalKembali = $proposal->pengembalianDana
-                ->where('status', '!=', 'ditolak')
-                ->sum('jumlah');
-
-            $sisaDana = $totalCair - $totalKembali;
-
-            if ($request->jumlah > $sisaDana) {
-                throw new \Exception('Jumlah pengembalian melebihi sisa dana.');
-            }
-
-            $pengembalian = PengembalianDana::create([
-                'proposal_id' => $request->proposal_id,
-                'rekening_id' => null,
-                'jumlah' => $request->jumlah,
-                'metode' => $request->metode,
-                'bukti' => $buktiPath,
-                'catatan' => $request->catatan,
-                'status' => 'pending',
-                'tanggal_pengembalian' => now(),
-            ]);
-
-            // 🔥 PANGGIL NOTIF DI SINI
-            $this->notifyKeuangan($proposal, $pengembalian, $user);
-
-        });
-
-        return back()->with(
-            'success',
-            'Pengembalian dana berhasil diajukan dan menunggu verifikasi keuangan.'
-        );
-    }
-
-
-    private function notifyKeuangan($proposal, $pengembalian, $user)
-    {
-        $usersKeuangan = User::where('role', 'keuangan')->get();
-
-        foreach ($usersKeuangan as $keuangan) {
-
-            if (!$keuangan->nohp) continue;
-
-            $pesan = \App\Services\WaTemplate::pengembalian($keuangan->name, $proposal->judul, $pengembalian->jumlah, $user->name, $pengembalian->catatan);
-
-            $this->sendViaFonnte($keuangan->nohp, $pesan);
-        }
-    }
-
-
-    
-
-
-    public function approve(Request $request, $id)
-    {
-        if (auth()->user()->role !== 'keuangan') {
-            abort(403, 'Anda tidak memiliki akses.');
-        }
-
-        $request->validate([
-            'rekening_id' => 'required|exists:rekening,id'
-        ]);
-
-        DB::transaction(function () use ($id, $request) {
-
-            $pengembalian = PengembalianDana::lockForUpdate()->findOrFail($id);
-
-            if ($pengembalian->status !== 'pending') {
-                throw new \Exception('Data sudah diproses.');
-            }
-
-            \App\Models\Departemen::whereKey($pengembalian->proposal->departemen_id)->lockForUpdate()->firstOrFail();
-            $rekening = Rekening::lockForUpdate()->findOrFail($request->rekening_id);
-
-            // Tambah saldo rekening
-            $rekening->increment('saldo', $pengembalian->jumlah);
-
-            // Update pengembalian
-            $pengembalian->update([
-                'status' => 'diterima',
-                'rekening_id' => $rekening->id
-            ]);
-        });
-
-        return back()->with('success', 'Pengembalian dana berhasil disetujui.');
-    }
-
-
-
-
-
-    public function reject($id)
-    {
-        // 🔐 Cek role dulu
-        if (auth()->user()->role !== 'keuangan') {
-            abort(403, 'Anda tidak memiliki akses.');
-        }
-
-        DB::transaction(function () use ($id) {
-            $pengembalian = PengembalianDana::lockForUpdate()->findOrFail($id);
-            if ($pengembalian->status !== 'pending') {
-                throw \Illuminate\Validation\ValidationException::withMessages(['pengembalian' => 'Data sudah diproses.']);
-            }
-            $pengembalian->update(['status' => 'ditolak']);
-        });
-
-        return back()->with('success', 'Pengembalian dana ditolak.');
-    }
-
-
-    
-
-    public function exportPdf(Request $request)
-    {
-        $query = PengembalianDana::with(['proposal.user', 'rekening']);
-
-        // FILTER STATUS
-        if ($request->status) {
-            $query->where('status', $request->status);
-        }
-
-        // FILTER TANGGAL
-        if ($request->tanggal_awal && $request->tanggal_akhir) {
-            $query->whereBetween('created_at', [
-                $request->tanggal_awal,
-                $request->tanggal_akhir
-            ]);
-        }
-
-        $data = $query->latest()->get();
-
-        $totalDiterima = $data
-            ->where('status', 'diterima')
-            ->sum('jumlah');
-
-        $pdf = Pdf::loadView(
-            'backend.pengembalian_dana.laporan_pdf',
-            compact('data','totalDiterima','request')
-        );
-
-        return $pdf->download('laporan_pengembalian_dana.pdf');
-    }
-
-
 
     public function show($id)
     {
-        $data = PengembalianDana::with([
-            'proposal.user',
-            'rekening'
-        ])->findOrFail($id);
+        $data = PengembalianDana::with(['proposal.user', 'rekening'])->findOrFail($id);
+        Access::viewProposal(auth()->user(), $data->proposal);
 
-        $rekening = Rekening::orderBy('nama_rekening')->get();
-
-        return view(
-            'backend.pengembalian_dana.show',
-            compact('data','rekening')
-        );
+        return view('backend.pengembalian_dana.show', ['data' => $data, 'rekening' => auth()->user()->role === 'keuangan' ? Rekening::orderBy('nama_rekening')->get() : collect()]);
     }
 
-    private function sendViaFonnte($nohp, $pesan)
+    public function store(Request $request)
     {
-        return app(\App\Services\FonnteService::class)->send($nohp, $pesan);
+        $data = $request->validate(['operation_id' => 'required|uuid', 'proposal_id' => 'required|integer|exists:proposal,id', 'jumlah' => 'required|numeric|decimal:0,2|min:0.01|max:9999999999999.99',
+            'metode' => 'required|in:cash,transfer', 'bukti' => 'required_if:metode,transfer|nullable|file|mimes:pdf,jpg,jpeg,png|max:2048', 'catatan' => 'nullable|string|max:1000']);
+        $stub = Proposal::findOrFail($data['proposal_id']);
+        Access::viewProposal($request->user(), $stub);
+        abort_unless((int) $stub->user_id === (int) $request->user()->id, 403);
+        $path = null;
+        try {
+            DB::transaction(function () use ($request, $data, $stub, &$path) {
+                app(Budgets::class)->ensureOpen((int) substr($stub->tanggal_pengajuan, 0, 4));
+                Departemen::whereKey($stub->departemen_id)->lockForUpdate()->firstOrFail();
+                if (app(FinancialOperation::class)->replay($data['operation_id'], $request->user()->id, 'refund', $data)) {
+                    return;
+                }
+                $proposal = Proposal::lockForUpdate()->findOrFail($stub->id);
+                if (Budgets::cents($data['jumlah']) > app(FinancialBalance::class)->values($proposal)['remaining']) {
+                    throw ValidationException::withMessages(['jumlah' => 'Pengembalian melebihi sisa dana setelah nota dan pengembalian sebelumnya.']);
+                }
+                $path = $request->file('bukti')?->store('bukti_pengembalian', 'local');
+                $refund = PengembalianDana::create(collect($data)->except(['bukti', 'operation_id'])->all() + ['bukti' => $path, 'status' => 'pending', 'tanggal_pengembalian' => now()]);
+                foreach (User::where('role', 'keuangan')->where('is_active', 1)->get() as $finance) {
+                    app(NotificationService::class)->queue($finance->nohp, 'Pengembalian dana #'.$refund->id.' menunggu verifikasi untuk proposal '.$proposal->judul, 'Verifikasi pengembalian', $finance->id, 'refund-'.$refund->id.'-'.$finance->id);
+                }
+                app(FinancialOperation::class)->complete($data['operation_id']);
+            }, 3);
+        } catch (\Throwable $e) {
+            if ($path) {
+                Storage::disk('local')->delete($path);
+            }throw $e;
+        }
+
+        return back()->with('success', 'Pengembalian diajukan dan menunggu verifikasi keuangan.');
     }
 
+    public function approve(Request $request, $id)
+    {
+        $data = $request->validate(['rekening_id' => 'required|integer|exists:rekening,id']);
+        $stub = PengembalianDana::with('proposal')->findOrFail($id);
+        DB::transaction(function () use ($data, $stub) {
+            app(Budgets::class)->ensureOpen((int) substr($stub->proposal->tanggal_pengajuan, 0, 4));
+            Departemen::whereKey($stub->proposal->departemen_id)->lockForUpdate()->firstOrFail();
+            $proposal = Proposal::lockForUpdate()->findOrFail($stub->proposal_id);
+            $refund = PengembalianDana::lockForUpdate()->findOrFail($stub->id);
+            abort_unless($refund->status === 'pending', 409, 'Data sudah diproses.');
+            $b = app(FinancialBalance::class)->values($proposal);
+            if ($b['remaining'] < 0) {
+                throw ValidationException::withMessages(['jumlah' => 'Total nota dan pengembalian melampaui pencairan. Rekonsiliasi data terlebih dahulu.']);
+            }
+            $account = Rekening::lockForUpdate()->findOrFail($data['rekening_id']);
+            $account->increment('saldo', $refund->jumlah);
+            $refund->update(['status' => 'diterima', 'rekening_id' => $account->id]);
+            app(NotificationService::class)->queue($proposal->user->nohp, 'Pengembalian dana #'.$refund->id.' telah diterima keuangan.', 'Pengembalian diterima', $proposal->user_id, 'refund-accepted-'.$refund->id);
+        }, 3);
 
+        return back()->with('success', 'Pengembalian diterima dan saldo diperbarui.');
+    }
 
+    public function reject(Request $request, $id)
+    {
+        $request->validate(['catatan' => 'nullable|string|max:1000']);
+        $stub = PengembalianDana::with('proposal')->findOrFail($id);
+        DB::transaction(function () use ($stub, $request) {
+            app(Budgets::class)->ensureOpen((int) substr($stub->proposal->tanggal_pengajuan, 0, 4));
+            Departemen::whereKey($stub->proposal->departemen_id)->lockForUpdate()->firstOrFail();
+            Proposal::whereKey($stub->proposal_id)->lockForUpdate()->firstOrFail();
+            $refund = PengembalianDana::lockForUpdate()->findOrFail($stub->id);
+            abort_unless($refund->status === 'pending', 409);
+            $refund->update(['status' => 'ditolak', 'catatan' => $request->input('catatan', $refund->catatan)]);
+        }, 3);
 
+        return back()->with('success', 'Pengembalian ditolak; saldo rekening tidak berubah.');
+    }
+
+    public function exportPdf(Request $request)
+    {
+        $data = $this->query($request)->latest()->get();
+
+        return Pdf::loadView('backend.pengembalian_dana.laporan_pdf',['data' => $data, 'totalDiterima' => $data->where('status','diterima')->sum('jumlah'), 'request' => $request])->download('laporan_pengembalian_dana.pdf');
+    }
 }

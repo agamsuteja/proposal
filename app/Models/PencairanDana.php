@@ -12,9 +12,10 @@ class PencairanDana extends Model
         'proposal_id',
         'rekening_id',
         'jumlah_dana',
+        'metode',
         'catatan',
         'bukti_transfer',
-        'tanggal_pencairan'
+        'tanggal_pencairan',
     ];
 
     public function proposal()

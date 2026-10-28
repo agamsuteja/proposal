@@ -236,7 +236,7 @@
                         <div class="modal-dialog modal-dialog-centered modal-lg modal-fullscreen-sm-down">
                             <div class="modal-content">
                                 <form action="{{ route('admin.pencairan.store') }}" method="POST" enctype="multipart/form-data">
-                                    @csrf
+                                    @csrf<input type="hidden" name="operation_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
                                     <input type="hidden" name="proposal_id" value="{{ $p->id }}">
                                     <div class="modal-header">
                                         <div class="modal-title">
