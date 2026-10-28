@@ -46,6 +46,8 @@
 .ep-pill.active-acara  { background:#fef3c7; color:#92400e; border-color:#fcd34d }
 .ep-pill.active-maint  { background:#ccfbf1; color:#0f766e; border-color:#5eead4 }
 
+.ep-event-amount { display:flex;width:100%;max-width:320px;border:0.5px solid #d1d5db;border-radius:8px;overflow:hidden }
+
 /* ── Table edit ── */
 .ep-table-wrap { overflow-x:auto }
 .ep-table { width:100%; border-collapse:collapse; font-size:12.5px; min-width:560px }
@@ -208,7 +210,7 @@
                     <div class="ep-grid-3 ep-group">
                         <div>
                             <label class="ep-label">Nama Acara</label>
-                            <input type="text" name="judul_acara" class="ep-input" value="{{ old('judul_acara', $proposal->judul_acara) }}">
+                            <input type="text" name="judul_acara" maxlength="150" class="ep-input" value="{{ old('judul_acara', $proposal->judul_acara) }}">
                         </div>
                         <div>
                             <label class="ep-label">Tanggal Acara</label>
@@ -225,11 +227,11 @@
                     </div>
                     <div>
                         <label class="ep-label">Total Anggaran (Rp)</label>
-                        <div style="display:flex;border:0.5px solid #d1d5db;border-radius:8px;overflow:hidden">
+                        <div class="ep-event-amount">
                             <span style="background:#f3f4f6;padding:8px 11px;font-size:12px;color:#6b7280;border-right:0.5px solid #d1d5db;white-space:nowrap">Rp</span>
                             <input type="text" id="totalManual" name="total_anggaran_manual"
-                                   style="border:none;flex:1;padding:8px 11px;font-size:13px;background:#f9fafb;color:#111;font-family:inherit;text-align:right;outline:none"
-                                   value="{{ number_format($proposal->total_anggaran, 0, ',', '.') }}"
+                                   style="border:none;flex:1;min-width:0;padding:8px 11px;font-size:13px;background:#f9fafb;color:#111;font-family:inherit;text-align:left;outline:none"
+                                   value="{{ old('total_anggaran_manual', number_format($proposal->total_anggaran, 0, ',', '.')) }}"
                                    placeholder="0">
                         </div>
                     </div>

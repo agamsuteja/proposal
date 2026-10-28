@@ -157,3 +157,7 @@ Tombol WhatsApp pra-persetujuan sekarang dapat mencatat permintaan setelah kepal
 ## Perbaikan isi dan penerima notifikasi proposal
 
 Pengajuan baru mengirim pesan proposal baru ke approver tahap pertama. Setelah disetujui kepala departemen, kepala grup mendapat pesan bahwa tahap departemen sudah selesai; setelah kepala grup menyetujui, gembala mendapat pesan tahap grup sudah selesai. Keduanya tidak lagi memakai template proposal revisi. Penolakan oleh tahap mana pun mengirim permintaan revisi beserta catatan ke pemilik proposal, bukan instruksi memberi persetujuan. Pengajuan kembali setelah status revisi memakai pesan revisi diajukan kembali ke approver tahap pertama dan tetap mengulang semua approval. Permintaan revisi admin menggunakan template pemohon yang sama. Tidak memerlukan SQL baru; pesan WhatsApp yang sudah terkirim tidak diubah.
+
+## Nama acara dan tampilan revisi
+
+Sebelum pull/deploy pembaruan nama acara, impor `database/sql/2026_10_28_event_name.sql` melalui phpMyAdmin setelah backup. SQL hanya menambah kolom nullable `proposal.judul_acara`; tidak mengubah data lama dan tidak perlu migrasi otomatis. Nama acara sekarang divalidasi/disimpan terpisah dari judul proposal serta dipertahankan saat revisi. Nama terpisah yang dahulu tidak pernah disimpan tidak dapat dipulihkan otomatis: untuk data lama, judul proposal ditampilkan sebagai isian awal, lalu pemilik dapat membetulkannya saat revisi. Kolom total anggaran acara pada pembuatan/edit dibatasi maksimal 320 piksel, responsif, dan rata kiri.

@@ -198,7 +198,7 @@
                 <div class="pc-field-grid cols-2-1" style="margin-bottom:.875rem">
                     <div class="pc-field">
                         <label>Nama Acara</label>
-                        <input type="text" name="judul_acara" placeholder="Contoh: Team Night DC" value="{{ old('judul_acara') }}">
+                        <input type="text" name="judul_acara" maxlength="150" placeholder="Contoh: Team Night DC" value="{{ old('judul_acara') }}">
                     </div>
                     <div class="pc-field">
                         <label>Tanggal Acara</label>
@@ -218,7 +218,7 @@
                 <div class="pc-field-grid cols-2">
                     <div class="pc-field">
                         <label>Total Anggaran (Rp) <span class="req">*</span></label>
-                        <input type="text" name="total_anggaran_manual" id="totalManual" class="anggaran-input" placeholder="Rp 0" value="{{ old('total_anggaran_manual') }}">
+                        <input type="text" name="total_anggaran_manual" id="totalManual" class="anggaran-input" style="max-width:320px;text-align:left" placeholder="Rp 0" value="{{ old('total_anggaran_manual') }}">
                     </div>
                 </div>
             </div>

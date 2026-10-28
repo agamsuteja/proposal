@@ -11,6 +11,7 @@ try {
     $app = require 'bootstrap/app.php';
     $app->make(Kernel::class)->bootstrap();
     $schema = [
+        'proposal' => ['judul_acara'],
         'group_fundings' => ['grup_id', 'tahun', 'rekening_id', 'plafon'], 'budget_funding_mutex' => ['id'],
         'budget_departemen' => ['departemen_id', 'tahun', 'jumlah'], 'budget_requests' => ['status', 'funded_at'],
         'budget_approvals' => ['approver_id', 'urutan', 'status'], 'budget_transfers' => ['sumber_id', 'tujuan_id', 'jumlah'],
@@ -30,7 +31,7 @@ try {
         }
     }
     if ($missing) {
-        fwrite(STDERR, 'Schema belum lengkap: '.implode(', ', $missing).".\nImport SQL 2026_10_27 dan 2026_10_28 serta 2026_10_28_group_funding melalui phpMyAdmin. Tidak ada migrasi otomatis.\n");
+        fwrite(STDERR, 'Schema belum lengkap: '.implode(', ', $missing).".\nImport SQL 2026_10_27 dan 2026_10_28 serta 2026_10_28_group_funding serta 2026_10_28_event_name melalui phpMyAdmin. Tidak ada migrasi otomatis.\n");
         exit(1);
     }
     if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true) && ! preg_match('/^decimal\(\d+,\s*2\)$/i', Schema::getColumnType('rekening', 'saldo', true))) {

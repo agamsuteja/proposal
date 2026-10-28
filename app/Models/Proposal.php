@@ -3,15 +3,18 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
 
 class Proposal extends Model
 {
     protected $table = 'proposal';
+
     protected $fillable = [
         'jenis',
         'user_id',
         'departemen_id',
         'judul',
+        'judul_acara',
         'tujuan',
         'total_anggaran',
         'tanggal_pengajuan',
@@ -20,21 +23,26 @@ class Proposal extends Model
         'keterangan',
         'lampiran',
         'nota_penggunaan',
-        'status'
+        'status',
     ];
 
     protected static function booted(): void
     {
         static::updating(function ($proposal) {
             if (($proposal->isDirty('departemen_id') || $proposal->isDirty('tanggal_pengajuan')) && $proposal->pencairan()->exists()) {
-                throw \Illuminate\Validation\ValidationException::withMessages(['departemen_id' => 'Departemen dan tahun proposal yang sudah dicairkan tidak dapat diubah.']);
+                throw ValidationException::withMessages(['departemen_id' => 'Departemen dan tahun proposal yang sudah dicairkan tidak dapat diubah.']);
             }
         });
         static::deleting(function ($proposal) {
             if ($proposal->pencairan()->exists()) {
-                throw \Illuminate\Validation\ValidationException::withMessages(['proposal' => 'Proposal dengan riwayat pencairan tidak dapat dihapus.']);
+                throw ValidationException::withMessages(['proposal' => 'Proposal dengan riwayat pencairan tidak dapat dihapus.']);
             }
         });
+    }
+
+    public function getJudulAcaraAttribute($value)
+    {
+        return $value ?: ($this->jenis === 'acara' ? $this->judul : null);
     }
 
     public function items()
@@ -55,22 +63,18 @@ class Proposal extends Model
     public function approval_flows()
     {
         return $this->hasMany(ApprovalProposal::class, 'proposal_id')
-                    ->orderBy('urutan', 'asc');
+            ->orderBy('urutan', 'asc');
     }
-
-    
 
     public function pencairan()
     {
-        return $this->hasMany(\App\Models\PencairanDana::class, 'proposal_id');
+        return $this->hasMany(PencairanDana::class, 'proposal_id');
     }
-
 
     public function nota_penggunaan()
     {
-        return $this->hasMany(\App\Models\NotaPenggunaanProposal::class, 'proposal_id');
+        return $this->hasMany(NotaPenggunaanProposal::class, 'proposal_id');
     }
-
 
     public function getStatusCairAttribute()
     {
@@ -88,13 +92,4 @@ class Proposal extends Model
     {
         return $this->hasMany(PengembalianDana::class);
     }
-
-    
-
-    
-
-
-
-
-
 }

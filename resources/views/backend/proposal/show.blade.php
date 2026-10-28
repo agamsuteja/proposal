@@ -267,7 +267,7 @@
             <div class="pd-field-grid">
                 <div class="pd-field">
                     <div class="pd-field-label"><i class="fas fa-bullhorn fa-sm"></i> Nama Acara</div>
-                    <div class="pd-field-value">{{ $proposal->judul ?? '-' }}</div>
+                    <div class="pd-field-value">{{ $proposal->judul_acara ?? '-' }}</div>
                 </div>
                 <div class="pd-field">
                     <div class="pd-field-label"><i class="fas fa-calendar-day fa-sm"></i> Tanggal Acara</div>

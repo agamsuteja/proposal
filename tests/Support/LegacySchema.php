@@ -27,6 +27,7 @@ final class LegacySchema
             DB::unprepared(file_get_contents(base_path('tests/Fixtures/legacy-schema.mysql.sql')));
             (require database_path('migrations/2026_10_28_000001_harden_workflows.php'))->up();
             (require database_path('migrations/2026_10_28_000002_link_group_funding.php'))->up();
+            (require database_path('migrations/2026_10_28_000003_preserve_event_name.php'))->up();
 
             return;
         }
@@ -134,5 +135,6 @@ final class LegacySchema
         (require database_path('migrations/2026_10_27_000001_create_department_budgets.php'))->up();
         (require database_path('migrations/2026_10_28_000001_harden_workflows.php'))->up();
         (require database_path('migrations/2026_10_28_000002_link_group_funding.php'))->up();
+        (require database_path('migrations/2026_10_28_000003_preserve_event_name.php'))->up();
     }
 }

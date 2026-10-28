@@ -529,4 +529,22 @@ class SecurityWorkflowTest extends TestCase
         $this->assertStringNotContainsString('proposal baru', $notice->message);
         $this->assertSame(3, $proposal->approval_flows()->where('status', 'pending')->count());
     }
+
+    public function test_event_revision_preserves_distinct_event_name_and_legacy_title_fallback(): void
+    {
+        $this->actingAs($this->employee)->postJson(route('admin.proposal.store'), ['jenis' => 'acara', 'judul' => 'Proposal kegiatan Community', 'judul_acara' => 'DC Team Night', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '1000000'])->assertRedirect();
+        $proposal = Proposal::firstOrFail();
+        $this->assertSame('DC Team Night', $proposal->judul_acara);
+        $this->assertSame('DC Team Night', DB::table('proposal')->where('id', $proposal->id)->value('judul_acara'));
+        $proposal->update(['status' => 'revisi']);
+        $this->get(route('admin.proposal.edit', $proposal->id))->assertOk()->assertSee('value="DC Team Night"', false);
+        $this->putJson(route('admin.proposal.update', $proposal->id), ['judul' => 'Proposal Community diperbarui', 'judul_acara' => 'DC Team Night revisi', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '1500000'])->assertRedirect();
+        $this->assertSame('DC Team Night revisi', $proposal->fresh()->judul_acara);
+        $this->get(route('admin.proposal.show', $proposal->id))->assertOk()->assertSee('DC Team Night revisi');
+        $legacy = $this->proposal('revisi');
+        $this->assertNull(DB::table('proposal')->where('id', $legacy->id)->value('judul_acara'));
+        $this->get(route('admin.proposal.edit', $legacy->id))->assertOk()->assertSee('value="Test proposal"', false);
+        $this->putJson(route('admin.proposal.update', $legacy->id), ['judul' => 'Legacy edited', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '1000'])->assertRedirect();
+        $this->assertSame('Test proposal', DB::table('proposal')->where('id', $legacy->id)->value('judul_acara'));
+    }
 }

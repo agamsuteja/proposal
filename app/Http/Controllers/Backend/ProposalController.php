@@ -73,7 +73,7 @@ class ProposalController extends Controller
             }, $request->input('items'))]);
         }
         $rules = ['judul' => 'required|string|max:150', 'tujuan' => 'nullable|string|max:10000', 'tanggal_pengajuan' => 'required|date',
-            'lampiran' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048', 'tanggal_acara' => 'nullable|date', 'lokasi_acara' => 'nullable|string|max:255', 'keterangan' => 'nullable|string|max:10000'];
+            'lampiran' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:2048', 'judul_acara' => 'nullable|string|max:150', 'tanggal_acara' => 'nullable|date', 'lokasi_acara' => 'nullable|string|max:255', 'keterangan' => 'nullable|string|max:10000'];
         if (! $proposal) {
             $rules['jenis'] = 'required|in:barang,maintenance,acara';
         }
@@ -85,7 +85,14 @@ class ProposalController extends Controller
             $rules['total_anggaran_manual'] = 'required|numeric|decimal:0,2|min:0.01|max:9999999999999.99';
         }
 
-        return $request->validate($rules);
+        $data = $request->validate($rules);
+        if ($jenis === 'acara') {
+            $data['judul_acara'] = $data['judul_acara'] ?? $proposal?->judul_acara ?? $data['judul'];
+        } else {
+            unset($data['judul_acara']);
+        }
+
+        return $data;
     }
 
     private function total(array $data, string $jenis): string
