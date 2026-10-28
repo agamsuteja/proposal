@@ -8,6 +8,7 @@ use App\Models\AuthChallenge;
 use App\Models\Departemen;
 use App\Models\Grup;
 use App\Models\NotaPenggunaanProposal;
+use App\Models\NotificationMessage;
 use App\Models\PencairanDana;
 use App\Models\PengembalianDana;
 use App\Models\Proposal;
@@ -432,5 +433,51 @@ class SecurityWorkflowTest extends TestCase
         $zip->close();
         $this->assertIsString($xml);
         $this->assertDoesNotMatchRegularExpression('/<f(?:\s|>)/', $xml);
+    }
+
+    public function test_finance_confirmation_is_queued_before_group_approval_without_changing_approval(): void
+    {
+        $proposal = $this->proposal('disetujui_mh');
+        $proposal->approval_flows()->where('tahap', 'departemen_head')->first()->update(['status' => 'disetujui']);
+        $url = route('admin.approval.notif-keuangan', $proposal->id);
+        $this->actingAs($this->groupHead)->postJson($url)->assertOk()->assertJsonPath('success', true);
+        $this->postJson($url)->assertOk();
+        $this->assertDatabaseCount('notification_outbox', 1);
+        $message = NotificationMessage::firstOrFail();
+        $this->assertSame($this->finance->id, (int) $message->user_id);
+        $this->assertStringContainsString('memohon konfirmasi ketersediaan dana', $message->message);
+        $this->assertSame('disetujui_mh', $proposal->fresh()->status);
+        $this->assertSame('pending', $proposal->approval_flows()->where('tahap', 'group_head')->value('status'));
+        $this->assertDatabaseCount('pencairan_dana', 0);
+    }
+
+    public function test_finance_confirmation_rejects_unassigned_users_wrong_order_and_stale_stage(): void
+    {
+        $proposal = $this->proposal();
+        $url = route('admin.approval.notif-keuangan', $proposal->id);
+        $this->actingAs($this->employee)->postJson($url)->assertForbidden();
+        $unassigned = $this->user('group_head');
+        $this->actingAs($unassigned)->postJson($url)->assertForbidden();
+        $this->actingAs($this->groupHead)->postJson($url)->assertStatus(409)->assertJsonStructure(['message']);
+        $proposal->update(['status' => 'disetujui_mh']);
+        $this->postJson($url)->assertStatus(409);
+        $proposal->approval_flows()->where('tahap', 'departemen_head')->first()->update(['status' => 'disetujui']);
+        $proposal->update(['status' => 'revisi']);
+        $this->postJson($url)->assertStatus(409);
+        $this->assertDatabaseCount('notification_outbox', 0);
+    }
+
+    public function test_finance_confirmation_reports_missing_finance_and_keeps_final_reminder_separate(): void
+    {
+        $proposal = $this->proposal('disetujui_senior_pastor');
+        $this->finance->update(['is_active' => 0]);
+        $url = route('admin.approval.notif-keuangan', $proposal->id);
+        $this->actingAs($this->groupHead)->postJson($url)->assertUnprocessable()->assertJsonPath('success', false);
+        $this->assertDatabaseCount('notification_outbox', 0);
+        $this->finance->update(['is_active' => 1]);
+        $this->postJson($url)->assertOk()->assertJsonPath('success', true);
+        $message = NotificationMessage::firstOrFail();
+        $this->assertSame('Pengingat pencairan keuangan', $message->subject);
+        $this->assertStringNotContainsString('memohon konfirmasi', $message->message);
     }
 }

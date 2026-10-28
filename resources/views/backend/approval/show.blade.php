@@ -417,9 +417,7 @@
                         Semua pihak telah menyetujui. Proposal menunggu pencairan dana oleh tim keuangan.
                     </div>
                 </div>
-                <!-- <a href="{{ route('admin.proposal.index') }}" class="ap-btn ap-btn-back" style="margin-top:.25rem">
-                    <i class="fas fa-arrow-left"></i> Kembali ke Daftar
-                </a> -->
+
 
             @elseif(!$canApprove)
                 <div class="ap-alert info">
@@ -429,15 +427,12 @@
                         Proposal ini masih dalam proses persetujuan dari tahap sebelumnya.
                     </div>
                 </div>
-                <!-- <a href="{{ route('admin.proposal.index') }}" class="ap-btn ap-btn-back" style="margin-top:.25rem">
-                    <i class="fas fa-arrow-left"></i> Kembali ke Daftar
-                </a>
 
             @else
                 <a href="{{ route('admin.proposal.index') }}" class="ap-btn ap-btn-back">
                     <i class="fas fa-arrow-left"></i> Kembali ke Daftar
                 </a>
-            @endif -->
+            @endif
 
         </div>
     </div>
@@ -489,7 +484,7 @@
 @endif
 
 {{-- ═══════════ MODAL KONFIRMASI KEUANGAN (Group Head only) ═══════════ --}}
-@if($currentFlow && Auth::user()->role === 'group_head')
+@if($canApprove && $currentFlow && Auth::user()->role === 'group_head')
 <div id="keuanganModal" class="ap-modal-backdrop" onclick="if(event.target===this)this.classList.remove('show')">
     <div class="ap-modal" style="max-width:500px">
         <div class="ap-modal-hd" style="background:#d97706">
@@ -520,9 +515,10 @@
 
                 {{-- Badge sukses (tersembunyi sampai WA berhasil dikirim) --}}
                 <div id="waSentState" style="display:none" class="wa-sent-badge">
-                    <i class="fas fa-check-circle"></i> Pesan berhasil dikirim ke tim keuangan
+                    <i class="fas fa-check-circle"></i> Permintaan notifikasi tercatat; tunggu konfirmasi keuangan.
                 </div>
 
+                <div id="waErrorState" class="ap-alert" style="display:none;background:#fef2f2;color:#991b1b;margin-bottom:10px" role="alert"></div>
                 {{-- ✅ Form AJAX — action mengarah ke route notif-keuangan --}}
                 <form id="waKeuanganForm"
                       action="{{ route('admin.approval.notif-keuangan', $proposal->id) }}"
@@ -572,43 +568,43 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ── Kirim WA ke Keuangan via AJAX ──
-function kirimWAKeuangan() {
-    var btn  = document.getElementById('btnKirimWA');
-    var form = document.getElementById('waKeuanganForm');
-    var sent = document.getElementById('waSentState');
-
-    // Tampilkan loading
+async function kirimWAKeuangan() {
+    const btn = document.getElementById('btnKirimWA');
+    const form = document.getElementById('waKeuanganForm');
+    const sent = document.getElementById('waSentState');
+    const error = document.getElementById('waErrorState');
+    if (!btn || !form || btn.disabled) return;
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mengirim...';
-
-    var formData = new FormData(form);
-
-    fetch(form.action, {
-        method: 'POST',
-        headers: {
-            'X-CSRF-TOKEN': formData.get('_token'),
-            'Accept': 'application/json',
-        },
-        body: formData,
-    })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-        if (data.success) {
-            // Sembunyikan tombol, tampilkan badge sukses
-            btn.style.display  = 'none';
-            sent.style.display = 'flex';
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fab fa-whatsapp"></i> Kirim Pesan ke Tim Keuangan';
-            alert('Gagal mengirim pesan: ' + (data.message || 'Terjadi kesalahan.'));
+    error.style.display = 'none';
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mencatat permintaan...';
+    try {
+        const formData = new FormData(form);
+        const response = await fetch(form.action, {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'X-CSRF-TOKEN': formData.get('_token'), 'Accept': 'application/json'},
+            body: formData,
+        });
+        let data = {};
+        try { data = await response.json(); } catch (_) {}
+        if (!response.ok || data.success !== true) {
+            const fallback = response.status === 419 || response.status === 401
+                ? 'Sesi berakhir. Muat ulang halaman dan login kembali.'
+                : response.status === 429 ? 'Terlalu banyak permintaan. Tunggu satu menit sebelum mencoba lagi.'
+                : 'Permintaan belum dapat diproses. Muat ulang halaman atau hubungi admin.';
+            throw new Error(response.status === 419 || response.status === 401 || response.status === 429 ? fallback : data.message || fallback);
         }
-    })
-    .catch(function() {
+        sent.textContent = data.message || 'Permintaan notifikasi tercatat. Tunggu konfirmasi dari keuangan.';
+        sent.style.display = 'flex';
+        btn.style.display = 'none';
+    } catch (failure) {
+        error.textContent = failure instanceof TypeError ? 'Tidak dapat menghubungi server. Periksa koneksi dan coba lagi.' : failure.message;
+        error.style.display = 'flex';
+    } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="fab fa-whatsapp"></i> Kirim Pesan ke Tim Keuangan';
-        alert('Terjadi kesalahan jaringan, silakan coba lagi.');
-    });
+    }
 }
+
 </script>
 
 @endsection

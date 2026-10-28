@@ -149,3 +149,7 @@ Tes menggunakan akun sintetis dan database terpisah. Tiga tes concurrency hanya 
 ## Pembaruan setelah audit: pendanaan rekening–grup
 
 Lihat [GROUP_FUNDING.md](GROUP_FUNDING.md). Sebelum menarik kode terbaru, impor juga `database/sql/2026_10_28_group_funding.sql`. Pendanaan grup sekarang membatasi total alokasi, rekening pencairan/refund, dan pengalokasian dana yang sama lintas grup/tahun. Penutupan periode memeriksa nota/refund yang belum selesai. Angka validasi dan perilaku yang disebut di atas adalah snapshot commit `390ccf1`; rincian perubahan ini ada pada panduan baru.
+
+## Perbaikan konfirmasi keuangan kepala grup (A06)
+
+Tombol WhatsApp pra-persetujuan sekarang dapat mencatat permintaan setelah kepala departemen menyetujui dan saat kepala grup yang ditetapkan masih pending. Role, scope, kelengkapan alur dan urutan tetap diperiksa; permintaan tidak mengubah approval atau mencairkan dana. Pengingat setelah final approval menggunakan pesan yang berbeda. Pengulangan permintaan pada tahap yang sama tidak membuat pesan duplikat. UI membedakan permintaan tercatat dari pesan terkirim/konfirmasi keuangan, menampilkan alasan penolakan, dan memulihkan tombol untuk retry. Admin/keuangan memantau hasil layanan pada Status Notifikasi. Tidak ada SQL tambahan untuk perbaikan ini.

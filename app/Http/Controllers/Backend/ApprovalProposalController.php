@@ -115,17 +115,32 @@ class ApprovalProposalController extends Controller
 
     public function notifKeuangan(Request $request, $proposalId)
     {
-        $proposal = Proposal::with(['departemen', 'user'])->findOrFail($proposalId);
-        Access::viewProposal($request->user(), $proposal);
-        abort_unless(in_array($proposal->status, ['disetujui_senior_pastor', 'dicairkan_sebagian']), 409);
-        $finances = User::where('role', 'keuangan')->where('is_active', 1)->get();
-        if ($finances->isEmpty()) {
-            return response()->json(['success' => false, 'message' => 'Belum ada akun keuangan aktif.'], 422);
-        }
-        foreach ($finances as $finance) {
-            app(NotificationService::class)->queue($finance->nohp, 'Mohon proses proposal #'.$proposal->id.' '.$proposal->judul, 'Pengingat keuangan', $finance->id);
-        }
+        return DB::transaction(function () use ($request, $proposalId) {
+            $proposal = Proposal::with(['departemen', 'user'])->lockForUpdate()->findOrFail($proposalId);
+            Access::viewProposal($request->user(), $proposal);
+            abort_unless($request->user()->role === 'group_head', 403, 'Hanya kepala grup yang dapat meminta konfirmasi ini.');
+            $flows = $proposal->approval_flows()->lockForUpdate()->get();
+            $flow = $flows->firstWhere('tahap', 'group_head');
+            abort_unless($flow && (int) $flow->approver_id === (int) $request->user()->id, 403, 'Anda bukan approver kepala grup yang ditetapkan.');
+            abort_unless($flows->pluck('tahap')->all() === ['departemen_head', 'group_head', 'gembala'], 409, 'Alur persetujuan belum lengkap. Hubungi admin untuk revisi.');
+            $priorApproved = ! $flows->where('urutan', '<', $flow->urutan)->contains(fn ($previous) => $previous->status !== 'disetujui');
+            $confirmation = $proposal->status === 'disetujui_mh' && $flow->status === 'pending' && $priorApproved;
+            $reminder = in_array($proposal->status, ['disetujui_senior_pastor', 'dicairkan_sebagian'], true) && $flow->status === 'disetujui' && $flows->every(fn ($stage) => $stage->status === 'disetujui');
+            abort_unless($confirmation || $reminder, 409, 'Notifikasi belum dapat diminta: tunggu persetujuan kepala departemen dan pastikan proposal masih pada tahap yang sesuai.');
+            $finances = User::where('role', 'keuangan')->where('is_active', 1)->get();
+            if ($finances->isEmpty()) {
+                return response()->json(['success' => false, 'message' => 'Belum ada akun keuangan aktif. Hubungi admin.'], 422);
+            }
+            $message = $confirmation
+                ? WaTemplate::konfirmasiDanaKeuangan($request->user()->name, $proposal->judul, $proposal->departemen->nama_departemen, $proposal->total_anggaran)
+                : WaTemplate::proposalSiapDicairkan($proposal->judul, $proposal->total_anggaran);
+            foreach ($finances as $finance) {
+                app(NotificationService::class)->queue($finance->nohp, $message,
+                    $confirmation ? 'Konfirmasi dana sebelum persetujuan kepala grup' : 'Pengingat pencairan keuangan', $finance->id,
+                    'finance-'.($confirmation ? 'confirm' : 'remind').'-'.$flow->id.'-'.($flow->updated_at?->format('Uu') ?? 'legacy').'-'.$finance->id);
+            }
 
-        return response()->json(['success' => true, 'message' => 'Permintaan notifikasi dicatat. Periksa status pengiriman pada menu Notifikasi.']);
+            return response()->json(['success' => true, 'message' => 'Permintaan notifikasi tercatat. Admin/keuangan dapat memantau pengiriman pada Status Notifikasi. Ini belum berarti keuangan sudah mengonfirmasi dana.']);
+        }, 3);
     }
 }
