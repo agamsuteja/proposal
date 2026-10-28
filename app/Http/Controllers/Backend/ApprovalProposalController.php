@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Backend;
 use App\Http\Controllers\Controller;
 use App\Models\ApprovalProposal;
 use App\Models\Departemen;
+use App\Models\GroupFunding;
 use App\Models\Proposal;
 use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
@@ -38,10 +39,21 @@ class ApprovalProposalController extends Controller
         Access::viewProposal(auth()->user(), $proposal);
         $flow = $proposal->approval_flows->firstWhere('approver_id', auth()->id());
         abort_unless($flow || in_array(auth()->user()->role, ['admin', 'keuangan']), 403);
-        $can = $flow && $flow->status === 'pending' && $flow->tahap === auth()->user()->role && $proposal->status !== 'revisi'
+        $can = $flow && $flow->status === 'pending' && $flow->tahap === auth()->user()->role && in_array($proposal->status, ['diajukan', 'disetujui_mh', 'disetujui_gh'], true)
             && ! $proposal->approval_flows->where('urutan', '<', $flow->urutan)->contains(fn ($p) => $p->status !== 'disetujui');
 
-        return view('backend.approval.show', ['proposal' => $proposal, 'currentFlow' => $flow, 'canApprove' => $can]);
+        $approvalBudget = null;
+        if ($can && $flow->tahap === 'gembala') {
+            $year = (int) substr($proposal->tanggal_pengajuan, 0, 4);
+            $service = app(Budgets::class);
+            $available = $service->available($proposal->departemen_id, $year);
+            $requested = Budgets::cents($proposal->total_anggaran);
+            $approvalBudget = ['year' => $year, 'requested' => $requested, 'available' => $available,
+                'reserved' => $service->reserved($proposal->departemen_id, $year), 'shortage' => max(0, $requested - $available),
+                'funded' => GroupFunding::where('grup_id', $proposal->departemen->grup_id)->where('tahun', $year)->exists()];
+        }
+
+        return view('backend.approval.show', ['proposal' => $proposal, 'currentFlow' => $flow, 'canApprove' => $can, 'approvalBudget' => $approvalBudget]);
     }
 
     public function update(Request $request, $id)
@@ -70,8 +82,13 @@ class ApprovalProposalController extends Controller
             if ($data['status'] === 'disetujui' && $flow->tahap === 'gembala') {
                 app(GroupFundingService::class)->requireDepartment($proposal->departemen_id, $year);
             }
-            if ($data['status'] === 'disetujui' && $flow->tahap === 'gembala' && Budgets::cents($proposal->total_anggaran) > $budgets->available($proposal->departemen_id, $year)) {
-                throw ValidationException::withMessages(['budget' => 'Budget belum cukup untuk mencadangkan proposal. Ajukan tambahan budget sebelum persetujuan akhir.']);
+            if ($data['status'] === 'disetujui' && $flow->tahap === 'gembala') {
+                $requested = Budgets::cents($proposal->total_anggaran);
+                $available = $budgets->available($proposal->departemen_id, $year);
+                if ($requested > $available) {
+                    $rupiah = fn ($cents) => 'Rp '.number_format($cents / 100, 2, ',', '.');
+                    throw ValidationException::withMessages(['budget' => 'Persetujuan akhir belum dapat disimpan. Total proposal '.$rupiah($requested).', budget departemen tersedia '.$rupiah($available).'. Kekurangan budget '.$rupiah($requested - $available).'. Ajukan tambahan budget dari departemen lain dalam grup yang sama, lalu keuangan memproses transfer sebelum persetujuan akhir.']);
+                }
             }
             $flow->update(['status' => $data['status'], 'catatan' => $data['catatan'] ?? null, 'tanggal_approve' => now()]);
             $proposal->update(['status' => $data['status'] === 'ditolak' ? 'revisi' : match ($flow->tahap) {

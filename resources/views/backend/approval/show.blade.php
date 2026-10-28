@@ -167,6 +167,13 @@
     </div>
 
     {{-- ═══════════ SESSION ALERTS ═══════════ --}}
+    @if($errors->any())
+        <div id="approval-errors" class="ap-alert danger" role="alert" tabindex="-1">
+            <i class="fas fa-exclamation-circle" style="flex-shrink:0;margin-top:2px"></i>
+            <div><strong>Keputusan belum tersimpan</strong><ul style="margin:6px 0 0;padding-left:18px">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>
+        </div>
+    @endif
+    @if(session('error'))<div class="ap-alert danger" role="alert">{{ session('error') }}</div>@endif
     @if(session('warning'))
         <div class="ap-alert warn">
             <i class="fas fa-exclamation-triangle" style="flex-shrink:0;margin-top:1px"></i>
@@ -367,6 +374,27 @@
         </div>
     </div>
 
+    @if($approvalBudget)
+    <div class="ap-card">
+        <div class="ap-card-hd"><span class="cdot"></span> Pemeriksaan Budget Departemen · {{ $approvalBudget['year'] }}</div>
+        <div class="ap-card-bd">
+            <div class="ap-field-grid">
+                <div class="ap-field"><div class="lbl">Total proposal</div><div class="val">Rp {{ number_format($approvalBudget['requested'] / 100, 2, ',', '.') }}</div></div>
+                <div class="ap-field"><div class="lbl">Budget departemen tersedia</div><div class="val">Rp {{ number_format($approvalBudget['available'] / 100, 2, ',', '.') }}</div></div>
+                <div class="ap-field"><div class="lbl">Dicadangkan untuk proposal lain</div><div class="val">Rp {{ number_format($approvalBudget['reserved'] / 100, 2, ',', '.') }}</div></div>
+                <div class="ap-field"><div class="lbl">Kekurangan budget</div><div class="val">Rp {{ number_format($approvalBudget['shortage'] / 100, 2, ',', '.') }}</div></div>
+            </div>
+            @if(!$approvalBudget['funded'])
+                <div class="ap-alert warn" style="margin-top:16px">Rekening sumber dan plafon grup belum ditetapkan untuk tahun proposal. Hubungi keuangan sebelum persetujuan akhir.</div>
+            @elseif($approvalBudget['shortage'] > 0)
+                <div class="ap-alert warn" style="margin-top:16px">Budget departemen belum mencukupi. Pemohon perlu mengajukan tambahan budget dari departemen lain dalam grup yang sama. Setelah approval tambahan dan transfer oleh keuangan selesai, coba persetujuan akhir kembali.</div>
+            @endif
+            <p style="font-size:12px;color:#6b7280;margin:14px 0">Persetujuan akhir mencadangkan dana pada budget departemen. Saldo rekening grup tidak otomatis menjadi alokasi satu departemen. Sistem memeriksa ulang saldo saat keputusan disimpan.</p>
+            <div class="ap-actions"><a class="ap-btn ap-btn-back" href="{{ route('admin.budget.index', ['tahun' => $approvalBudget['year']]) }}">Lihat Budget Departemen</a><a class="ap-btn ap-btn-back" href="{{ route('admin.budget.requests', ['tahun' => $approvalBudget['year']]) }}">Lihat Tambahan Budget</a></div>
+        </div>
+    </div>
+    @endif
+
     {{-- ═══════════ TINDAKAN APPROVAL ═══════════ --}}
     <div class="ap-card">
         <div class="ap-card-hd"><span class="cdot"></span> Tindakan Approval</div>
@@ -557,6 +585,11 @@
 @endif
 
 <script>
+document.addEventListener('DOMContentLoaded', () => {
+    const errors = document.getElementById('approval-errors');
+    if (errors) { errors.focus(); errors.scrollIntoView({block: 'start'}); }
+});
+
 // ── Tutup semua modal dengan tombol ESC ──
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {

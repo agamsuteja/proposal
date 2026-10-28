@@ -110,7 +110,7 @@
 
     {{-- ═══ ERROR ALERT ═══ --}}
     @if($errors->any())
-    <div class="pc-error-alert">
+    <div class="pc-error-alert" role="alert" tabindex="-1">
         <strong>Mohon perbaiki kesalahan berikut:</strong>
         <ul>
             @foreach($errors->all() as $error)

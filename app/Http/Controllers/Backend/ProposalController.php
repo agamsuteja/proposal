@@ -11,6 +11,7 @@ use App\Models\Proposal;
 use App\Services\DepartmentBudgetService as Budgets;
 use App\Services\FinancialBalance;
 use App\Services\FinancialOperation;
+use App\Services\GroupFundingService;
 use App\Services\NotificationService;
 use App\Services\ProposalApprovers;
 use App\Services\WaTemplate;
@@ -134,6 +135,17 @@ class ProposalController extends Controller
         app(NotificationService::class)->queue($first->nohp, $message, $revised ? 'Proposal revisi diajukan kembali' : 'Proposal baru menunggu persetujuan', $first->id, 'proposal-submitted-'.$proposal->id.'-'.$firstFlowId);
     }
 
+    private function checkSubmissionBudget(int $department, int $year, string $total): void
+    {
+        app(GroupFundingService::class)->requireDepartment($department, $year);
+        $available = app(Budgets::class)->available($department, $year);
+        $requested = Budgets::cents($total);
+        if ($requested > $available) {
+            $rupiah = fn ($cents) => 'Rp '.number_format($cents / 100, 2, ',', '.');
+            throw ValidationException::withMessages(['budget' => 'Proposal belum dapat diajukan. Total proposal '.$rupiah($requested).', budget departemen tahun '.$year.' tersedia '.$rupiah($available).'. Kekurangan budget '.$rupiah($requested - $available).'. Ajukan tambahan budget dari departemen lain dalam grup yang sama dan tunggu approval serta transfer keuangan selesai, lalu ajukan proposal kembali.']);
+        }
+    }
+
     public function store(Request $request)
     {
         $data = $this->data($request);
@@ -145,9 +157,11 @@ class ProposalController extends Controller
             DB::transaction(function () use ($request, $data, $department, $approvers, &$path) {
                 app(Budgets::class)->ensureOpen((int) substr($data['tanggal_pengajuan'], 0, 4));
                 Departemen::whereKey($department->id)->lockForUpdate()->firstOrFail();
+                $total = $this->total($data, $data['jenis']);
+                $this->checkSubmissionBudget($department->id, (int) substr($data['tanggal_pengajuan'], 0, 4), $total);
                 $path = $request->file('lampiran')?->store('proposal_lampiran', 'local');
                 $proposal = Proposal::create(collect($data)->except(['items', 'lampiran', 'total_anggaran_manual'])->all() + [
-                    'user_id' => $request->user()->id, 'departemen_id' => $department->id, 'total_anggaran' => $this->total($data, $data['jenis']), 'lampiran' => $path, 'status' => 'diajukan']);
+                    'user_id' => $request->user()->id, 'departemen_id' => $department->id, 'total_anggaran' => $total, 'lampiran' => $path, 'status' => 'diajukan']);
                 $this->items($proposal, $data);
                 $this->flows($proposal, $approvers);
             }, 3);
@@ -181,12 +195,14 @@ class ProposalController extends Controller
                 Departemen::whereKey($stub->departemen_id)->lockForUpdate()->firstOrFail();
                 $proposal = Proposal::lockForUpdate()->findOrFail($stub->id);
                 Access::editProposal($request->user(), $proposal);
+                $total = $this->total($data, $proposal->jenis);
+                $this->checkSubmissionBudget($proposal->departemen_id, (int) substr($data['tanggal_pengajuan'], 0, 4), $total);
                 $approvers = app(ProposalApprovers::class)->forDepartment($proposal->departemen);
                 $revised = $proposal->status === 'revisi';
                 $oldPath = $proposal->lampiran;
                 $path = $request->file('lampiran')?->store('proposal_lampiran', 'local');
                 $proposal->update(collect($data)->except(['items', 'lampiran', 'total_anggaran_manual'])->all() + [
-                    'total_anggaran' => $this->total($data, $proposal->jenis), 'lampiran' => $path ?? $oldPath, 'status' => 'diajukan']);
+                    'total_anggaran' => $total, 'lampiran' => $path ?? $oldPath, 'status' => 'diajukan']);
                 $this->items($proposal, $data);
                 $this->flows($proposal, $approvers, $revised);
                 if ($path && $oldPath) {

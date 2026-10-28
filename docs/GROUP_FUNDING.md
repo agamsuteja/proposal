@@ -91,3 +91,9 @@ LEGACY_TEST_SCHEMA=1 BUDGET_TEST_MYSQL_DATABASE=proposal_budget_test php vendor/
 Suite mencakup pembagian Rp20 juta, batas plafon, sumber lintas grup/tahun, pemakaian/cadangan, ketepatan sen, pencairan/refund pada rekening yang benar, pembatasan role, data legacy, tutup/buka periode, dan dua request paralel untuk pendanaan serta alokasi. Fixture mengosongkan database tes berawalan `proposal_budget_test` per tes.
 
 Panduan PDF audit sebelumnya menggambarkan commit `390ccf1`. Gunakan dokumen ini sebagai pembaruan khusus hubungan rekening–budget; kontrol framework Laravel 11 dan batas audit hosting pada panduan keamanan tetap berlaku.
+
+## Validasi sebelum mengajukan proposal
+
+Pembuatan dan penyimpanan revisi proposal sekarang memeriksa sumber pendanaan dan budget tersedia departemen sesuai tahun pengajuan, setelah memperhitungkan pemakaian dan cadangan proposal lain. Total acara maupun penjumlahan anggaran barang/maintenance yang melampaui saldo tersedia ditolak sebelum proposal/approval/notifikasi baru disimpan. Misalnya proposal Rp15 juta dengan budget DC tersedia Rp10 juta langsung ditolak dengan informasi kekurangan Rp5 juta. Selesaikan tambahan budget dan transfer keuangan terlebih dahulu, lalu ajukan kembali. Revisi yang gagal tidak menimpa data atau membangun ulang approval.
+
+Pemeriksaan saldo saat approval akhir tetap berlaku untuk perubahan saldo setelah pengajuan. Halaman gembala sekarang menampilkan saldo tersedia, cadangan, kekurangan dan semua pesan validasi, sehingga kegagalan tidak lagi tampak sebagai refresh tanpa alasan. Proposal lama yang sudah telanjur masuk dengan anggaran berlebih dapat dikembalikan untuk revisi; data dan keputusan sebelumnya tidak diubah otomatis. Perubahan validasi ini tidak memerlukan SQL tambahan.

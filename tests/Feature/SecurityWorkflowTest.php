@@ -6,6 +6,7 @@ use App\Models\ActivityLog;
 use App\Models\ApprovalProposal;
 use App\Models\AuthChallenge;
 use App\Models\Departemen;
+use App\Models\GroupFunding;
 use App\Models\Grup;
 use App\Models\NotaPenggunaanProposal;
 use App\Models\NotificationMessage;
@@ -546,5 +547,78 @@ class SecurityWorkflowTest extends TestCase
         $this->get(route('admin.proposal.edit', $legacy->id))->assertOk()->assertSee('value="Test proposal"', false);
         $this->putJson(route('admin.proposal.update', $legacy->id), ['judul' => 'Legacy edited', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '1000'])->assertRedirect();
         $this->assertSame('Test proposal', DB::table('proposal')->where('id', $legacy->id)->value('judul_acara'));
+    }
+
+    public function test_final_approval_displays_budget_rejection_on_redirect_and_succeeds_after_funding(): void
+    {
+        $proposal = $this->proposal('disetujui_gh', null, '6000000');
+        $proposal->approval_flows()->where('tahap', '!=', 'gembala')->get()->each(fn ($flow) => $flow->update(['status' => 'disetujui']));
+        $last = $proposal->approval_flows()->where('tahap', 'gembala')->firstOrFail();
+        $page = route('admin.approval.show', $proposal->id);
+        $this->actingAs($this->pastor)->from($page)->put(route('admin.approval.update', $last->id), ['status' => 'disetujui'])->assertRedirect($page)->assertSessionHasErrors('budget');
+        $this->get($page)->assertOk()->assertSee('Keputusan belum tersimpan')->assertSee('Persetujuan akhir belum dapat disimpan')->assertSee('Rp 6.000.000,00')->assertSee('Rp 5.000.000,00')->assertSee('Rp 1.000.000,00')->assertSee('Pemeriksaan Budget Departemen');
+        $this->assertSame('pending', $last->fresh()->status);
+        $this->assertSame('disetujui_gh', $proposal->fresh()->status);
+        $this->assertDatabaseCount('notification_outbox', 0);
+        app(Budgets::class)->setBudget($this->it->id, 2026, '6000000', 'Tambahan alokasi sudah diproses');
+        $this->from($page)->put(route('admin.approval.update', $last->id), ['status' => 'disetujui'])->assertRedirect($page)->assertSessionHas('success');
+        $this->assertSame('disetujui', $last->fresh()->status);
+        $this->assertSame('disetujui_senior_pastor', $proposal->fresh()->status);
+        $this->assertSame(600000000, app(Budgets::class)->reserved($this->it->id, 2026));
+    }
+
+    public function test_final_approval_displays_missing_group_funding_instead_of_silent_refresh(): void
+    {
+        GroupFunding::query()->delete();
+        $proposal = $this->proposal('disetujui_gh');
+        $proposal->approval_flows()->where('tahap', '!=', 'gembala')->get()->each(fn ($flow) => $flow->update(['status' => 'disetujui']));
+        $last = $proposal->approval_flows()->where('tahap', 'gembala')->firstOrFail();
+        $page = route('admin.approval.show', $proposal->id);
+        $this->actingAs($this->pastor)->from($page)->put(route('admin.approval.update', $last->id), ['status' => 'disetujui'])->assertRedirect($page)->assertSessionHasErrors('pendanaan');
+        $this->get($page)->assertOk()->assertSee('Keputusan belum tersimpan')->assertSee('belum ditetapkan');
+        $this->assertSame('pending', $last->fresh()->status);
+        $this->assertDatabaseCount('notification_outbox', 0);
+    }
+
+    public function test_submission_budget_blocks_oversized_events_goods_and_maintenance_before_any_approvals(): void
+    {
+        app(Budgets::class)->setBudget($this->it->id, 2026, '10000000');
+        foreach (['acara', 'barang', 'maintenance'] as $kind) {
+            $data = ['jenis' => $kind, 'judul' => 'DC Team Night', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '15000000',
+                'items' => [['nama_barang' => 'Kebutuhan pertama', 'anggaran' => '6000000'], ['nama_barang' => 'Kebutuhan kedua', 'anggaran' => '9000000']]];
+            $this->actingAs($this->employee)->postJson(route('admin.proposal.store'), $data)->assertUnprocessable()->assertJsonValidationErrors('budget');
+        }
+        $this->assertDatabaseCount('proposal', 0);
+        $this->assertDatabaseCount('approval_proposal', 0);
+        $this->assertDatabaseCount('notification_outbox', 0);
+        $page = route('admin.proposal.create');
+        $this->from($page)->post(route('admin.proposal.store'), ['jenis' => 'acara', 'judul' => 'DC Team Night', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '15000000'])->assertRedirect($page)->assertSessionHasErrors('budget');
+        $this->get($page)->assertOk()->assertSee('Proposal belum dapat diajukan')->assertSee('Rp 15.000.000,00')->assertSee('Rp 10.000.000,00')->assertSee('Rp 5.000.000,00');
+    }
+
+    public function test_submission_budget_blocks_revision_without_rebuilding_approvals_or_overwriting_data(): void
+    {
+        $proposal = $this->proposal('revisi');
+        $flowIds = $proposal->approval_flows()->pluck('id')->all();
+        $this->actingAs($this->employee)->putJson(route('admin.proposal.update', $proposal->id), ['judul' => 'Terlalu besar', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '15000000'])->assertUnprocessable()->assertJsonValidationErrors('budget');
+        $this->assertSame('revisi', $proposal->fresh()->status);
+        $this->assertSame('Test proposal', $proposal->fresh()->judul);
+        $this->assertSame($flowIds, $proposal->approval_flows()->pluck('id')->all());
+        $this->assertDatabaseCount('notification_outbox', 0);
+        app(Budgets::class)->setBudget($this->it->id, 2026, '15000000', 'Tambahan sudah diproses');
+        $this->putJson(route('admin.proposal.update', $proposal->id), ['judul' => 'Sudah cukup', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '15000000'])->assertRedirect();
+        $this->assertSame('diajukan', $proposal->fresh()->status);
+        $this->assertSame(3, $proposal->approval_flows()->where('status', 'pending')->count());
+    }
+
+    public function test_submission_budget_counts_existing_reservations_and_checks_the_submission_year(): void
+    {
+        $this->proposal('disetujui_senior_pastor', null, '4500000');
+        $data = ['jenis' => 'acara', 'judul' => 'Kebutuhan baru', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '1000000'];
+        $this->actingAs($this->employee)->postJson(route('admin.proposal.store'), $data)->assertUnprocessable()->assertJsonValidationErrors('budget');
+        $data['total_anggaran_manual'] = '500000';
+        $this->postJson(route('admin.proposal.store'), $data)->assertRedirect();
+        $data['tanggal_pengajuan'] = '2027-01-01';
+        $this->postJson(route('admin.proposal.store'), $data)->assertUnprocessable()->assertJsonValidationErrors('pendanaan');
     }
 }
