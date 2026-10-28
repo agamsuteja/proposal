@@ -59,7 +59,21 @@ class BudgetController extends Controller
             $account->free_cents = DepartmentBudgetService::cents($account->saldo ?? 0) - $account->committed_cents;
         }
 
-        return view('backend.budget.index', compact('year', 'departments', 'requests', 'groupTotals', 'periodStatus', 'approvers', 'fundings', 'accounts'));
+        $fundingLimits = [];
+        if ($request->user()->role === 'keuangan') {
+            foreach ($departments->pluck('grup_id')->unique() as $groupId) {
+                $groupUsed = app(GroupFundingService::class)->used($groupId, $year);
+                $current = $fundings->get($groupId);
+                foreach ($accounts as $account) {
+                    // Editing replaces this group's commitment; it does not reserve it twice.
+                    $credit = $current && (int) $current->rekening_id === (int) $account->id && $periodStatus === 'open'
+                        ? max(0, DepartmentBudgetService::cents($current->plafon) - $groupUsed) : 0;
+                    $fundingLimits[$groupId][$account->id] = DepartmentBudgetService::amount(max(0, min(999999999999999, $account->free_cents + $credit + $groupUsed)));
+                }
+            }
+        }
+
+        return view('backend.budget.index', compact('year', 'departments', 'requests', 'groupTotals', 'periodStatus', 'approvers', 'fundings', 'accounts', 'fundingLimits'));
     }
 
     public function save(Request $request, DepartmentBudgetService $service)
