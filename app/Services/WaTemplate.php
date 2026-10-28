@@ -128,7 +128,7 @@ class WaTemplate
         ], 'Silakan buka aplikasi ' . self::APLIKASI . ' untuk melakukan revisi.');
     }
 
-    /** Ke Group Head: proposal revisi diajukan kembali */
+    /** Ke approver tahap pertama: pemilik mengajukan kembali proposal yang direvisi */
     public static function diajukanKembali($nama, $dept, $judul, $total): string
     {
         return self::notif($nama, [

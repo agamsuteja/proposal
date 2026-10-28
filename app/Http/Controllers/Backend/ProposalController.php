@@ -109,17 +109,22 @@ class ProposalController extends Controller
         }
     }
 
-    private function flows(Proposal $proposal, array $approvers): void
+    private function flows(Proposal $proposal, array $approvers, bool $revised = false): void
     {
         foreach ($proposal->approval_flows()->get() as $flow) {
             $flow->delete();
         }
         $order = 1;
+        $firstFlowId = null;
         foreach ($approvers as $stage => $user) {
-            ApprovalProposal::create(['proposal_id' => $proposal->id, 'approver_id' => $user->id, 'tahap' => $stage, 'urutan' => $order++, 'status' => 'pending']);
+            $flow = ApprovalProposal::create(['proposal_id' => $proposal->id, 'approver_id' => $user->id, 'tahap' => $stage, 'urutan' => $order++, 'status' => 'pending']);
+            $firstFlowId ??= $flow->id;
         }
         $first = reset($approvers);
-        app(NotificationService::class)->queue($first->nohp, WaTemplate::proposalBaru($first->name, $proposal->departemen->nama_departemen, $proposal->judul, $proposal->total_anggaran), 'Proposal menunggu persetujuan', $first->id);
+        $message = $revised
+            ? WaTemplate::diajukanKembali($first->name, $proposal->departemen->nama_departemen, $proposal->judul, $proposal->total_anggaran)
+            : WaTemplate::proposalBaru($first->name, $proposal->departemen->nama_departemen, $proposal->judul, $proposal->total_anggaran);
+        app(NotificationService::class)->queue($first->nohp, $message, $revised ? 'Proposal revisi diajukan kembali' : 'Proposal baru menunggu persetujuan', $first->id, 'proposal-submitted-'.$proposal->id.'-'.$firstFlowId);
     }
 
     public function store(Request $request)
@@ -170,12 +175,13 @@ class ProposalController extends Controller
                 $proposal = Proposal::lockForUpdate()->findOrFail($stub->id);
                 Access::editProposal($request->user(), $proposal);
                 $approvers = app(ProposalApprovers::class)->forDepartment($proposal->departemen);
+                $revised = $proposal->status === 'revisi';
                 $oldPath = $proposal->lampiran;
                 $path = $request->file('lampiran')?->store('proposal_lampiran', 'local');
                 $proposal->update(collect($data)->except(['items', 'lampiran', 'total_anggaran_manual'])->all() + [
                     'total_anggaran' => $this->total($data, $proposal->jenis), 'lampiran' => $path ?? $oldPath, 'status' => 'diajukan']);
                 $this->items($proposal, $data);
-                $this->flows($proposal, $approvers);
+                $this->flows($proposal, $approvers, $revised);
                 if ($path && $oldPath) {
                     DB::afterCommit(fn () => Storage::disk(Storage::disk('local')->exists($oldPath) ? 'local' : 'public')->delete($oldPath));
                 }
@@ -261,9 +267,9 @@ class ProposalController extends Controller
             abort_if($proposal->pencairan()->exists(), 409, 'Proposal sudah dicairkan dan tidak dapat dikembalikan untuk revisi.');
             $proposal->update(['status' => 'revisi']);
             ActivityLog::create(['user_id' => auth()->id(), 'action' => 'proposal.revision_requested', 'subject_type' => 'proposal', 'subject_id' => (string) $proposal->id, 'after' => ['alasan' => $data['alasan']]]);
-            app(NotificationService::class)->queue($proposal->user->nohp,'Proposal #'.$proposal->id.' memerlukan revisi: '.$data['alasan'],'Permintaan revisi admin',$proposal->user_id);
+            app(NotificationService::class)->queue($proposal->user->nohp, WaTemplate::revisiKePemohon($proposal->user->name, $proposal->judul, $data['alasan']), 'Permintaan revisi admin', $proposal->user_id);
         }, 3);
 
-        return back()->with('success','Proposal dikembalikan ke pemohon untuk revisi dan approval ulang.');
+        return back()->with('success', 'Proposal dikembalikan ke pemohon untuk revisi dan approval ulang.');
     }
 }

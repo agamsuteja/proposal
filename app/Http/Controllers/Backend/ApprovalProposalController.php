@@ -78,11 +78,16 @@ class ApprovalProposalController extends Controller
                 'departemen_head' => 'disetujui_mh','group_head' => 'disetujui_gh',default => 'disetujui_senior_pastor'
             }]);
             if ($data['status'] === 'ditolak') {
-                app(NotificationService::class)->queue($proposal->user->nohp, WaTemplate::proposalRevisi($proposal->user->name, $proposal->judul), 'Proposal memerlukan revisi', $proposal->user_id, 'proposal-reject-'.$flow->id.'-'.$flow->updated_at->timestamp);
+                app(NotificationService::class)->queue($proposal->user->nohp, WaTemplate::revisiKePemohon($proposal->user->name, $proposal->judul, $data['catatan'] ?? null), 'Proposal memerlukan revisi', $proposal->user_id, 'proposal-reject-'.$flow->id.'-'.$flow->updated_at->timestamp);
             } else {
                 $next = $proposal->approval_flows()->where('status', 'pending')->orderBy('urutan')->first();
                 if ($next) {
-                    app(NotificationService::class)->queue($next->approver->nohp, WaTemplate::proposalRevisi($next->approver->name, $proposal->judul), 'Proposal menunggu persetujuan', $next->approver_id, 'proposal-approve-'.$flow->id.'-'.$flow->updated_at->timestamp);
+                    $message = match ($next->tahap) {
+                        'group_head' => WaTemplate::proposalMasukGroupHead($next->approver->name, $proposal->departemen->nama_departemen, $proposal->judul, $proposal->total_anggaran),
+                        'gembala' => WaTemplate::proposalMenungguGembala($next->approver->name, $proposal->departemen->nama_departemen, $proposal->judul, $proposal->total_anggaran),
+                        default => WaTemplate::proposalBaru($next->approver->name, $proposal->departemen->nama_departemen, $proposal->judul, $proposal->total_anggaran),
+                    };
+                    app(NotificationService::class)->queue($next->approver->nohp, $message, 'Proposal menunggu persetujuan', $next->approver_id, 'proposal-approve-'.$flow->id.'-'.$flow->updated_at->timestamp);
                 } else {
                     foreach (User::where('role', 'keuangan')->where('is_active', 1)->get() as $finance) {
                         app(NotificationService::class)->queue($finance->nohp, 'Proposal #'.$proposal->id.' '.$proposal->judul.' telah disetujui dan siap diproses keuangan.', 'Proposal disetujui', $finance->id, 'proposal-ready-'.$proposal->id.'-'.$flow->id.'-'.$finance->id);

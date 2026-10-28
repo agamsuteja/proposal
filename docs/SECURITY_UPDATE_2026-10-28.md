@@ -153,3 +153,7 @@ Lihat [GROUP_FUNDING.md](GROUP_FUNDING.md). Sebelum menarik kode terbaru, impor 
 ## Perbaikan konfirmasi keuangan kepala grup (A06)
 
 Tombol WhatsApp pra-persetujuan sekarang dapat mencatat permintaan setelah kepala departemen menyetujui dan saat kepala grup yang ditetapkan masih pending. Role, scope, kelengkapan alur dan urutan tetap diperiksa; permintaan tidak mengubah approval atau mencairkan dana. Pengingat setelah final approval menggunakan pesan yang berbeda. Pengulangan permintaan pada tahap yang sama tidak membuat pesan duplikat. UI membedakan permintaan tercatat dari pesan terkirim/konfirmasi keuangan, menampilkan alasan penolakan, dan memulihkan tombol untuk retry. Admin/keuangan memantau hasil layanan pada Status Notifikasi. Tidak ada SQL tambahan untuk perbaikan ini.
+
+## Perbaikan isi dan penerima notifikasi proposal
+
+Pengajuan baru mengirim pesan proposal baru ke approver tahap pertama. Setelah disetujui kepala departemen, kepala grup mendapat pesan bahwa tahap departemen sudah selesai; setelah kepala grup menyetujui, gembala mendapat pesan tahap grup sudah selesai. Keduanya tidak lagi memakai template proposal revisi. Penolakan oleh tahap mana pun mengirim permintaan revisi beserta catatan ke pemilik proposal, bukan instruksi memberi persetujuan. Pengajuan kembali setelah status revisi memakai pesan revisi diajukan kembali ke approver tahap pertama dan tetap mengulang semua approval. Permintaan revisi admin menggunakan template pemohon yang sama. Tidak memerlukan SQL baru; pesan WhatsApp yang sudah terkirim tidak diubah.

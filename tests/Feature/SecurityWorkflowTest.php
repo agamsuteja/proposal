@@ -480,4 +480,53 @@ class SecurityWorkflowTest extends TestCase
         $this->assertSame('Pengingat pencairan keuangan', $message->subject);
         $this->assertStringNotContainsString('memohon konfirmasi', $message->message);
     }
+
+    public function test_proposal_notifications_use_new_submission_and_correct_next_stage_messages(): void
+    {
+        $this->actingAs($this->employee)->postJson(route('admin.proposal.store'), ['jenis' => 'acara', 'judul' => 'DC Team Night', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '1000000'])->assertRedirect();
+        $proposal = Proposal::firstOrFail();
+        $notice = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame($this->head->id, (int) $notice->user_id);
+        $this->assertStringContainsString('proposal baru', $notice->message);
+        foreach ([$this->head, $this->groupHead] as $index => $approver) {
+            $flow = $proposal->approval_flows()->where('approver_id', $approver->id)->firstOrFail();
+            $this->actingAs($approver)->putJson(route('admin.approval.update', $flow->id), ['status' => 'disetujui'])->assertRedirect();
+            $notice = NotificationMessage::latest('id')->firstOrFail();
+            $this->assertSame($index === 0 ? $this->groupHead->id : $this->pastor->id, (int) $notice->user_id);
+            $this->assertStringContainsString($index === 0 ? 'telah disetujui Kepala Departemen' : 'telah disetujui Group Head', $notice->message);
+            $this->assertStringNotContainsString('proposal revisi', $notice->message);
+        }
+        $this->assertSame(0, NotificationMessage::where('user_id', $this->employee->id)->count());
+    }
+
+    public function test_proposal_notifications_send_rejection_to_owner_with_revision_instructions_and_reason(): void
+    {
+        foreach ([$this->head, $this->groupHead, $this->pastor] as $index => $approver) {
+            $proposal = $this->proposal(['diajukan', 'disetujui_mh', 'disetujui_gh'][$index]);
+            $proposal->approval_flows()->where('urutan', '<', $index + 1)->get()->each(fn ($flow) => $flow->update(['status' => 'disetujui']));
+            $flow = $proposal->approval_flows()->where('approver_id', $approver->id)->firstOrFail();
+            $this->actingAs($approver)->putJson(route('admin.approval.update', $flow->id), ['status' => 'ditolak', 'catatan' => 'Lengkapi rincian konsumsi'])->assertRedirect();
+            $notice = NotificationMessage::latest('id')->firstOrFail();
+            $this->assertSame($this->employee->id, (int) $notice->user_id);
+            $this->assertSame(app(FonnteService::class)->normalizePhone($this->employee->nohp), $notice->target);
+            $this->assertStringContainsString('Proposal Anda telah dikembalikan untuk direvisi.', $notice->message);
+            $this->assertStringContainsString('Lengkapi rincian konsumsi', $notice->message);
+            $this->assertStringContainsString('untuk melakukan revisi', $notice->message);
+            $this->assertStringNotContainsString('menunggu persetujuan Anda', $notice->message);
+            $this->assertSame('revisi', $proposal->fresh()->status);
+        }
+        $this->assertDatabaseCount('notification_outbox', 3);
+    }
+
+    public function test_proposal_notifications_label_resubmission_as_revision_only_after_owner_revises(): void
+    {
+        $proposal = $this->proposal('revisi');
+        $this->actingAs($this->employee)->putJson(route('admin.proposal.update', $proposal->id), ['judul' => 'DC Team Night updated', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran_manual' => '1000000'])->assertRedirect();
+        $notice = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame($this->head->id, (int) $notice->user_id);
+        $this->assertStringContainsString('Proposal revisi', $notice->message);
+        $this->assertStringContainsString('telah diajukan kembali', $notice->message);
+        $this->assertStringNotContainsString('proposal baru', $notice->message);
+        $this->assertSame(3, $proposal->approval_flows()->where('status', 'pending')->count());
+    }
 }
