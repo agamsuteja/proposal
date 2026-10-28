@@ -39,7 +39,7 @@
             <form method="get" class="budget-toolbar">
                 <div class="budget-field" style="flex:0 1 180px"><label for="tahun">Tahun anggaran</label><input class="budget-input" id="tahun" type="number" name="tahun" min="2000" max="2100" value="{{ $year }}" required></div>
                 <button class="budget-button primary"><i class="bi bi-funnel" aria-hidden="true"></i>Tampilkan</button>
-                <span class="budget-help">{{ $isRequestPage ? 'Menampilkan pengajuan untuk periode yang dipilih.' : 'Total budget grup dihitung dari alokasi seluruh departemen di dalamnya.' }}</span>
+                <span class="budget-help">{{ $isRequestPage ? 'Menampilkan pengajuan untuk periode yang dipilih.' : 'Tetapkan rekening dan plafon grup, lalu bagi alokasi ke departemen. Alokasi tidak boleh melampaui plafon.' }}</span>
             </form>
         </div>
     </div>
@@ -53,6 +53,7 @@
                     <div class="budget-department"><span class="budget-icon"><i class="bi bi-diagram-3" aria-hidden="true"></i></span><div><h2 id="group-{{ $groupId }}">{{ $groupDepartments->first()->grup?->nama_grup ?? 'Grup' }}</h2><p class="budget-subtitle">{{ $groupDepartments->count() }} departemen ditampilkan · Tahun {{ $year }}</p></div></div>
                     <span class="budget-badge purple">Total grup · Rp {{ number_format($groupTotals[$groupId] ?? 0, 2, ',', '.') }}</span>
                 </div>
+                @include('backend.budget.partials.funding')
                 <div class="budget-table-wrap">
                     <table class="budget-table">
                         <thead><tr><th scope="col">Departemen</th><th scope="col">Alokasi budget</th><th scope="col">Terpakai</th><th scope="col">Dicadangkan</th><th scope="col">Tersedia</th>@if($isFinance)<th scope="col">Atur alokasi</th>@endif</tr></thead>
@@ -66,7 +67,7 @@
                                 <td class="budget-money">Rp {{ number_format($department->reserved_cents / 100, 2, ',', '.') }}</td>
                                 <td class="budget-money {{ $remaining < 0 ? 'budget-negative' : 'budget-positive' }}">Rp {{ number_format($remaining / 100, 2, ',', '.') }}@if($department->budget_cents === 0)<div class="budget-help">Belum dialokasikan</div>@elseif($remaining <= 0)<div class="budget-help">Perlu tambahan budget</div>@endif</td>
                                 @if($isFinance)
-                                    <td><details class="budget-details"><summary>Ubah alokasi</summary><form action="{{ route('admin.budget.save') }}" method="post" class="budget-edit">@csrf @method('PUT')<input type="hidden" name="departemen_id" value="{{ $department->id }}"><input type="hidden" name="tahun" value="{{ $year }}"><input aria-label="Budget {{ $department->nama_departemen }}" class="budget-input" type="number" name="jumlah" min="0" step="0.01" required value="{{ \App\Services\DepartmentBudgetService::amount($department->budget_cents) }}"><input class="budget-input" name="alasan" aria-label="Alasan perubahan alokasi" placeholder="Alasan perubahan" minlength="5" maxlength="1000" required><button class="budget-button secondary" @disabled($periodStatus!=='open') aria-label="Simpan budget {{ $department->nama_departemen }}"><i class="bi bi-check2" aria-hidden="true"></i>Simpan</button></form></details></td>
+                                    <td><details class="budget-details"><summary>Ubah alokasi</summary><form action="{{ route('admin.budget.save') }}" method="post" class="budget-edit">@csrf @method('PUT')<input type="hidden" name="departemen_id" value="{{ $department->id }}"><input type="hidden" name="tahun" value="{{ $year }}"><input aria-label="Budget {{ $department->nama_departemen }}" class="budget-input" type="number" name="jumlah" min="0" step="0.01" max="{{ \App\Services\DepartmentBudgetService::amount(max(0, \App\Services\DepartmentBudgetService::cents($fundings->get($groupId)?->plafon ?? 0) - \App\Services\DepartmentBudgetService::cents($groupTotals[$groupId] ?? 0) + $department->budget_cents)) }}" required value="{{ \App\Services\DepartmentBudgetService::amount($department->budget_cents) }}"><input class="budget-input" name="alasan" aria-label="Alasan perubahan alokasi" placeholder="Alasan perubahan" minlength="5" maxlength="1000" required><button class="budget-button secondary" @disabled($periodStatus!=='open' || !$fundings->has($groupId)) aria-label="Simpan budget {{ $department->nama_departemen }}"><i class="bi bi-check2" aria-hidden="true"></i>Simpan</button></form></details></td>
                                 @endif
                             </tr>
                         @endforeach

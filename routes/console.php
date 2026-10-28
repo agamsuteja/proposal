@@ -2,14 +2,19 @@
 
 use App\Models\ActivityLog;
 use App\Models\BudgetRequest;
+use App\Models\GroupFunding;
 use App\Models\NotificationMessage;
 use App\Models\Rekening;
 use App\Models\User;
+use App\Services\DepartmentBudgetService;
+use App\Services\GroupFundingService;
 use App\Services\NotificationService;
 use Illuminate\Foundation\Inspiring;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Validation\ValidationException;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -99,6 +104,25 @@ Artisan::command('security:check', function () {
     }
     if (Rekening::where('saldo', '<', 0)->exists()) {
         $issues[] = 'Ada saldo rekening negatif.';
+    }
+    $fundingService = app(GroupFundingService::class);
+    $missingFunding = DB::table('budget_departemen')->join('departemen', 'departemen.id', '=', 'budget_departemen.departemen_id')
+        ->leftJoin('group_fundings', fn ($j) => $j->on('group_fundings.grup_id', '=', 'departemen.grup_id')->on('group_fundings.tahun', '=', 'budget_departemen.tahun'))
+        ->whereNull('group_fundings.id')->count();
+    if ($missingFunding) {
+        $issues[] = $missingFunding.' alokasi departemen belum ditautkan ke pendanaan grup. Tetapkan sumber/plafon melalui Budget Departemen.';
+    }
+    foreach (GroupFunding::all() as $funding) {
+        if ($fundingService->allocated($funding->grup_id, $funding->tahun) > DepartmentBudgetService::cents($funding->plafon)) {
+            $issues[] = 'Total alokasi grup #'.$funding->grup_id.' tahun '.$funding->tahun.' melebihi plafon.';
+        }
+    }
+    foreach (Rekening::all() as $account) {
+        try {
+            $fundingService->assertBacked($account->id);
+        } catch (ValidationException $e) {
+            $issues[] = 'Pendanaan rekening #'.$account->id.' perlu rekonsiliasi: '.implode(' ', Arr::flatten($e->errors()));
+        }
     }
     foreach ($issues as $issue) {
         $this->warn($issue);

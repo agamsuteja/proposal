@@ -265,16 +265,16 @@
                                             </div>
                                         </div>
 
-                                        <label class="pf-label">Rekening Tujuan</label>
+                                        <label class="pf-label">Rekening Sumber Grup</label>
                                         <select name="rekening_id" required>
                                             <option value="">— Pilih Rekening —</option>
-                                            @foreach($rekenings as $r)
+                                            @foreach($rekenings->where('id', $p->source_account_id) as $r)
                                                 <option value="{{ $r->id }}">
-                                                    {{ $r->nama_bank }} — {{ $r->nama_rekening }} (Rp {{ number_format($r->saldo, 0, ',', '.') }})
+                                                    {{ $r->bank }} — {{ $r->nama_rekening }} (Rp {{ number_format($r->saldo, 0, ',', '.') }})
                                                 </option>
                                             @endforeach
                                         </select>
-                                        <div class="pf-hint">Rekening yang akan menerima dana pencairan</div>
+                                        <div class="pf-hint">Rekening pendanaan grup untuk tahun proposal. Jika kosong, tetapkan pendanaan di Budget Departemen.</div>
 
                                         <label class="pf-label">Metode Pencairan</label>
                                         <div class="metode-options">

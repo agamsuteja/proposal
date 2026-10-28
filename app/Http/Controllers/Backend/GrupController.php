@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
 use App\Models\Departemen;
+use App\Models\GroupFunding;
 use App\Models\Grup;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -64,7 +65,7 @@ class GrupController extends Controller
         $grup = Grup::findOrFail($id);
         DB::transaction(function () use ($id) {
             $grup = Grup::lockForUpdate()->findOrFail($id);
-            if (Departemen::where('grup_id', $grup->id)->exists() || User::where('grup_id', $grup->id)->exists()) {
+            if (GroupFunding::where('grup_id', $grup->id)->exists() || Departemen::where('grup_id', $grup->id)->exists() || User::where('grup_id', $grup->id)->exists()) {
                 throw ValidationException::withMessages(['grup' => 'Grup masih terkait departemen atau pengguna dan tidak dapat dihapus.']);
             }
             $grup->delete();

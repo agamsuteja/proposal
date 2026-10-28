@@ -11,6 +11,7 @@ use App\Models\BudgetReversal;
 use App\Models\BudgetTransfer;
 use App\Models\Departemen;
 use App\Models\DepartmentBudget;
+use App\Models\GroupFunding;
 use App\Models\Proposal;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +40,7 @@ class DepartmentBudgetService
 
     public function ensureOpen(int $year): void
     {
+        app(GroupFundingService::class)->lock();
         BudgetPeriod::firstOrCreate(['tahun' => $year], ['status' => 'open']);
         $period = BudgetPeriod::whereKey($year)->lockForUpdate()->firstOrFail();
         if ($period->status !== 'open') {
@@ -88,14 +90,28 @@ class DepartmentBudgetService
             if (self::cents($amount) < $this->used($department, $year) + $this->reserved($department, $year)) {
                 $this->fail('Alokasi tidak boleh kurang dari dana terpakai dan dicadangkan.');
             }
-            $budget = DepartmentBudget::firstOrNew(['departemen_id' => $department, 'tahun' => $year]);
-            $before = $budget->jumlah ?? '0';
-            if (auth()->check()) {
-                BudgetAdjustment::create(['departemen_id' => $department, 'tahun' => $year, 'before_amount' => $before, 'after_amount' => $amount, 'alasan' => $reason, 'user_id' => auth()->id()]);
+            $funding = app(GroupFundingService::class)->requireDepartment($department, $year);
+            $old = self::cents(DepartmentBudget::where('departemen_id', $department)->where('tahun', $year)->value('jumlah') ?? 0);
+            if (app(GroupFundingService::class)->allocated($funding->grup_id, $year) - $old + self::cents($amount) > self::cents($funding->plafon)) {
+                $this->fail('Total alokasi departemen melebihi plafon dana grup. Gunakan tambahan budget untuk memindahkan alokasi dari departemen lain dalam grup.');
             }
-            $budget->jumlah = $amount;
-            $budget->save();
+            $this->writeAllocation($department, $year, $amount, $reason);
         }, 3);
+    }
+
+    /** Internal batch writer; callers must lock and validate the complete allocation set. */
+    public function writeAllocation(int $department, int $year, string $amount, string $reason): void
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Allocation writes require a transaction.');
+        }
+        $budget = DepartmentBudget::firstOrNew(['departemen_id' => $department, 'tahun' => $year]);
+        $before = $budget->jumlah ?? '0';
+        if (auth()->check()) {
+            BudgetAdjustment::create(['departemen_id' => $department, 'tahun' => $year, 'before_amount' => $before, 'after_amount' => $amount, 'alasan' => $reason, 'user_id' => auth()->id()]);
+        }
+        $budget->jumlah = $amount;
+        $budget->save();
     }
 
     public function submit(User $user, Departemen $department, int $year, string $amount, string $reason): BudgetRequest
@@ -154,6 +170,7 @@ class DepartmentBudgetService
         DB::transaction(function () use ($id, $user, $sources, $year) {
             $this->ensureOpen($year);
             $request = BudgetRequest::lockForUpdate()->findOrFail($id);
+            app(GroupFundingService::class)->requireDepartment($request->departemen_id, $year);
             if ($request->status !== 'disetujui' || $request->funded_at) {
                 $this->fail('Pengajuan belum disetujui atau sudah ditransfer.');
             }
@@ -270,6 +287,7 @@ class DepartmentBudgetService
         DB::transaction(function () use ($id, $user, $reason, $year) {
             $this->ensureOpen($year);
             $r = BudgetRequest::lockForUpdate()->findOrFail($id);
+            app(GroupFundingService::class)->requireDepartment($r->departemen_id, $year);
             abort_unless($r->status === 'ditransfer', 409);
             $transfers = $r->transfers;
             Departemen::whereIn('id', array_merge([$r->departemen_id], $transfers->pluck('sumber_id')->all()))->orderBy('id')->lockForUpdate()->get();
@@ -291,12 +309,26 @@ class DepartmentBudgetService
     {
         abort_unless($user->role === 'keuangan', 403);
         DB::transaction(function () use ($year, $status, $user, $reason) {
+            app(GroupFundingService::class)->lock();
             BudgetPeriod::firstOrCreate(['tahun' => $year], ['status' => 'open']);
             $p = BudgetPeriod::whereKey($year)->lockForUpdate()->firstOrFail();
             if ($status === 'closed' && (BudgetRequest::where('tahun', $year)->whereIn('status', ['pending', 'disetujui'])->exists() || Proposal::whereYear('tanggal_pengajuan', $year)->whereIn('status', ['diajukan', 'disetujui_mh', 'disetujui_gh', 'disetujui_senior_pastor', 'dicairkan_sebagian', 'revisi'])->exists())) {
                 $this->fail('Masih ada proposal atau pengajuan tambahan yang belum selesai.');
             }
+            if ($status === 'closed') {
+                foreach (Proposal::whereYear('tanggal_pengajuan', $year)->get() as $proposal) {
+                    $balance = app(FinancialBalance::class)->values($proposal, false);
+                    if ($balance['remaining'] !== 0 || $proposal->pengembalianDana()->where('status', 'pending')->exists()) {
+                        $this->fail('Nota dan pengembalian proposal #'.$proposal->id.' belum selesai direkonsiliasi.');
+                    }
+                }
+            }
             $p->update(['status' => $status, 'user_id' => $user->id, 'alasan' => $reason]);
+            if ($status === 'open') {
+                foreach (GroupFunding::where('tahun', $year)->pluck('rekening_id')->unique() as $account) {
+                    app(GroupFundingService::class)->assertBacked($account);
+                }
+            }
         }, 3);
     }
 
@@ -305,15 +337,15 @@ class DepartmentBudgetService
         abort_unless($user->role === 'keuangan' && $source !== $target, 403);
         DB::transaction(function () use ($source, $target, $reason) {
             $this->ensureOpen($target);
-            if (DepartmentBudget::where('tahun',$target)->exists()) {
+            if (DepartmentBudget::where('tahun', $target)->exists()) {
                 $this->fail('Tahun tujuan sudah memiliki alokasi. Penyalinan tidak menimpa data.');
             }
-            $budgets = DepartmentBudget::where('tahun',$source)->get();
+            $budgets = DepartmentBudget::where('tahun', $source)->get();
             if ($budgets->isEmpty()) {
                 $this->fail('Tahun sumber belum memiliki budget.');
             }
             foreach ($budgets as $budget) {
-                $this->setBudget($budget->departemen_id,$target,(string) $budget->jumlah,$reason);
+                $this->setBudget($budget->departemen_id, $target, (string) $budget->jumlah, $reason);
             }
         }, 3);
     }

@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
 use App\Models\Departemen;
+use App\Models\GroupFunding;
 use App\Models\PencairanDana;
 use App\Models\Proposal;
 use App\Models\Rekening;
 use App\Services\DepartmentBudgetService;
 use App\Services\FinancialOperation;
+use App\Services\GroupFundingService;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +34,10 @@ class PencairanDanaController extends Controller
             ->latest()
             ->get();
 
+        $fundings = GroupFunding::all()->keyBy(fn ($f) => $f->grup_id.'-'.$f->tahun);
+        foreach ($proposals as $proposal) {
+            $proposal->source_account_id = $fundings->get($proposal->departemen->grup_id.'-'.substr($proposal->tanggal_pengajuan, 0, 4))?->rekening_id;
+        }
         $rekenings = Rekening::orderBy('nama_rekening')->get();
 
         return view('backend.pencairan.index', compact('proposals', 'pencairans', 'rekenings'));
@@ -69,6 +75,10 @@ class PencairanDanaController extends Controller
                 }
                 $proposal = Proposal::lockForUpdate()->findOrFail($stub->id);
                 $account = Rekening::lockForUpdate()->findOrFail($data['rekening_id']);
+                $funding = app(GroupFundingService::class)->requireDepartment($proposal->departemen_id, $year);
+                if ((int) $funding->rekening_id !== (int) $account->id) {
+                    throw ValidationException::withMessages(['rekening_id' => 'Pencairan wajib memakai rekening sumber pendanaan grup tahun proposal.']);
+                }
                 if (! in_array($proposal->status, ['disetujui_senior_pastor', 'dicairkan_sebagian'])) {
                     throw ValidationException::withMessages(['proposal' => 'Proposal belum disetujui untuk pencairan.']);
                 }
@@ -96,6 +106,6 @@ class PencairanDanaController extends Controller
             }throw $e;
         }
 
-        return back()->with('success','Pencairan dicatat. Status pengiriman pesan dapat diperiksa pada menu Notifikasi.');
+        return back()->with('success', 'Pencairan dicatat. Status pengiriman pesan dapat diperiksa pada menu Notifikasi.');
     }
 }

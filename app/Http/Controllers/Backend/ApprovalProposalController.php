@@ -8,6 +8,7 @@ use App\Models\Departemen;
 use App\Models\Proposal;
 use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
+use App\Services\GroupFundingService;
 use App\Services\NotificationService;
 use App\Services\WaTemplate;
 use App\Support\Access;
@@ -66,6 +67,9 @@ class ApprovalProposalController extends Controller
             if ($data['status'] === 'disetujui' && $flows->pluck('tahap')->all() !== ['departemen_head', 'group_head', 'gembala']) {
                 throw ValidationException::withMessages(['approval' => 'Alur lama tidak lengkap. Pemohon harus merevisi dan mengajukan ulang.']);
             }
+            if ($data['status'] === 'disetujui' && $flow->tahap === 'gembala') {
+                app(GroupFundingService::class)->requireDepartment($proposal->departemen_id, $year);
+            }
             if ($data['status'] === 'disetujui' && $flow->tahap === 'gembala' && Budgets::cents($proposal->total_anggaran) > $budgets->available($proposal->departemen_id, $year)) {
                 throw ValidationException::withMessages(['budget' => 'Budget belum cukup untuk mencadangkan proposal. Ajukan tambahan budget sebelum persetujuan akhir.']);
             }
@@ -119,7 +123,7 @@ class ApprovalProposalController extends Controller
             return response()->json(['success' => false, 'message' => 'Belum ada akun keuangan aktif.'], 422);
         }
         foreach ($finances as $finance) {
-            app(NotificationService::class)->queue($finance->nohp,'Mohon proses proposal #'.$proposal->id.' '.$proposal->judul,'Pengingat keuangan',$finance->id);
+            app(NotificationService::class)->queue($finance->nohp, 'Mohon proses proposal #'.$proposal->id.' '.$proposal->judul, 'Pengingat keuangan', $finance->id);
         }
 
         return response()->json(['success' => true, 'message' => 'Permintaan notifikasi dicatat. Periksa status pengiriman pada menu Notifikasi.']);

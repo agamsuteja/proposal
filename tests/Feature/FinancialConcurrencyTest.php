@@ -3,12 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\Departemen;
+use App\Models\GroupFunding;
 use App\Models\Grup;
 use App\Models\PencairanDana;
 use App\Models\Proposal;
 use App\Models\Rekening;
 use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
+use App\Services\GroupFundingService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Support\LegacySchema;
@@ -35,9 +37,11 @@ class FinancialConcurrencyTest extends TestCase
         $d = Departemen::create(['nama_departemen' => 'Concurrent', 'grup_id' => $group->id]);
         $this->owner = User::create(['name' => 'Owner', 'email' => 'owner@example.test', 'password' => 'test-hash', 'role' => 'karyawan', 'is_active' => 1, 'departemen_id' => $d->id, 'grup_id' => $group->id]);
         $this->finance = User::create(['name' => 'Finance', 'email' => 'finance@example.test', 'password' => 'test-hash', 'role' => 'keuangan', 'is_active' => 1, 'departemen_id' => $d->id, 'grup_id' => $group->id]);
+        $this->account = Rekening::create(['nama_rekening' => 'Concurrent', 'saldo' => '5000000']);
+        app(GroupFundingService::class)->save($group->id, 2026, $this->account->id, '5000000', 'Pendanaan paralel');
         app(Budgets::class)->setBudget($d->id, 2026, '5000000');
         $this->proposal = Proposal::create(['user_id' => $this->owner->id, 'departemen_id' => $d->id, 'judul' => 'Concurrent test', 'jenis' => 'acara', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran' => '1000000', 'status' => 'disetujui_senior_pastor']);
-        $this->account = Rekening::create(['nama_rekening' => 'Concurrent', 'saldo' => '2000000']);
+
     }
 
     private function parallel(string $kind, array $first, array $second): array
@@ -74,7 +78,7 @@ class FinancialConcurrencyTest extends TestCase
     {
         $this->assertSame(['302', '422'], $this->parallel('payout', $this->payout(), $this->payout()));
         $this->assertDatabaseCount('pencairan_dana', 1);
-        $this->assertSame(125000000, Budgets::cents($this->account->fresh()->saldo));
+        $this->assertSame(425000000, Budgets::cents($this->account->fresh()->saldo));
     }
 
     public function test_repeated_parallel_operation_is_applied_only_once(): void
@@ -93,6 +97,31 @@ class FinancialConcurrencyTest extends TestCase
         $other = $data;
         $other['operation_id'] = (string) Str::uuid();
         $this->assertSame(['302', '422'], $this->parallel('refund', $data, $other));
-        $this->assertDatabaseCount('pengembalian_dana',1);
+        $this->assertDatabaseCount('pengembalian_dana', 1);
+    }
+
+    public function test_parallel_group_funding_cannot_reserve_the_same_bank_cash_twice(): void
+    {
+        $account = Rekening::create(['nama_rekening' => 'Shared Bank', 'saldo' => '20000000']);
+        $other = Grup::create(['nama_grup' => 'Other group']);
+        $data = ['_actor' => $this->finance->id, 'grup_id' => $this->proposal->departemen->grup_id, 'tahun' => 2027, 'rekening_id' => $account->id, 'plafon' => '12000000', 'alasan' => 'Pendanaan bersamaan'];
+        $second = $data;
+        $second['grup_id'] = $other->id;
+        $this->assertSame(['302', '422'], $this->parallel('funding', $data, $second));
+        $this->assertSame(1200000000, app(GroupFundingService::class)->committed($account->id));
+        $this->assertSame(1, GroupFunding::where('rekening_id', $account->id)->count());
+    }
+
+    public function test_parallel_department_allocations_cannot_exceed_group_limit(): void
+    {
+        $department = $this->proposal->departemen;
+        app(Budgets::class)->setBudget($department->id, 2026, '1000000');
+        $other = Departemen::create(['nama_departemen' => 'Another dept', 'grup_id' => $department->grup_id]);
+        $data = ['_actor' => $this->finance->id, 'departemen_id' => $department->id, 'tahun' => 2026, 'jumlah' => '4000000', 'alasan' => 'Alokasi secara bersamaan'];
+        $second = $data;
+        $second['departemen_id'] = $other->id;
+        $this->assertSame(['302', '422'], $this->parallel('allocation', $data, $second));
+        $total = app(GroupFundingService::class)->allocated($department->grup_id, 2026);
+        $this->assertLessThanOrEqual(500000000, $total);
     }
 }

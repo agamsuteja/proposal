@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
 use App\Models\Departemen;
+use App\Models\GroupFunding;
 use App\Models\Grup;
 use App\Models\PengembalianDana;
 use App\Models\Proposal;
@@ -12,6 +13,7 @@ use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
 use App\Services\FinancialBalance;
 use App\Services\FinancialOperation;
+use App\Services\GroupFundingService;
 use App\Services\NotificationService;
 use App\Support\Access;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -59,7 +61,9 @@ class PengembalianDanaController extends Controller
         $data = PengembalianDana::with(['proposal.user', 'rekening'])->findOrFail($id);
         Access::viewProposal(auth()->user(), $data->proposal);
 
-        return view('backend.pengembalian_dana.show', ['data' => $data, 'rekening' => auth()->user()->role === 'keuangan' ? Rekening::orderBy('nama_rekening')->get() : collect()]);
+        $source = GroupFunding::where('grup_id', $data->proposal->departemen->grup_id)->where('tahun', (int) substr($data->proposal->tanggal_pengajuan, 0, 4))->value('rekening_id');
+
+        return view('backend.pengembalian_dana.show', ['data' => $data, 'rekening' => auth()->user()->role === 'keuangan' ? Rekening::whereKey($source)->get() : collect()]);
     }
 
     public function store(Request $request)
@@ -112,6 +116,10 @@ class PengembalianDanaController extends Controller
                 throw ValidationException::withMessages(['jumlah' => 'Total nota dan pengembalian melampaui pencairan. Rekonsiliasi data terlebih dahulu.']);
             }
             $account = Rekening::lockForUpdate()->findOrFail($data['rekening_id']);
+            $funding = app(GroupFundingService::class)->requireDepartment($proposal->departemen_id, (int) substr($proposal->tanggal_pengajuan, 0, 4));
+            if ((int) $account->id !== (int) $funding->rekening_id) {
+                throw ValidationException::withMessages(['rekening_id' => 'Pengembalian wajib diterima pada rekening sumber pendanaan grup tahun proposal.']);
+            }
             $account->increment('saldo', $refund->jumlah);
             $refund->update(['status' => 'diterima', 'rekening_id' => $account->id]);
             app(NotificationService::class)->queue($proposal->user->nohp, 'Pengembalian dana #'.$refund->id.' telah diterima keuangan.', 'Pengembalian diterima', $proposal->user_id, 'refund-accepted-'.$refund->id);
@@ -140,6 +148,6 @@ class PengembalianDanaController extends Controller
     {
         $data = $this->query($request)->latest()->get();
 
-        return Pdf::loadView('backend.pengembalian_dana.laporan_pdf',['data' => $data, 'totalDiterima' => $data->where('status','diterima')->sum('jumlah'), 'request' => $request])->download('laporan_pengembalian_dana.pdf');
+        return Pdf::loadView('backend.pengembalian_dana.laporan_pdf', ['data' => $data, 'totalDiterima' => $data->where('status', 'diterima')->sum('jumlah'), 'request' => $request])->download('laporan_pengembalian_dana.pdf');
     }
 }

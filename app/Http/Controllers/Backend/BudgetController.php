@@ -9,8 +9,11 @@ use App\Models\BudgetRequest;
 use App\Models\BudgetTransfer;
 use App\Models\Departemen;
 use App\Models\DepartmentBudget;
+use App\Models\GroupFunding;
+use App\Models\Rekening;
 use App\Models\User;
 use App\Services\DepartmentBudgetService;
+use App\Services\GroupFundingService;
 use Illuminate\Http\Request;
 
 class BudgetController extends Controller
@@ -49,7 +52,14 @@ class BudgetController extends Controller
         $periodStatus = BudgetPeriod::whereKey($year)->value('status') ?? 'open';
         $approvers = $request->user()->role === 'admin' ? User::where('is_active', 1)->whereIn('role', ['departemen_head', 'group_head', 'gembala'])->orderBy('name')->get() : collect();
 
-        return view('backend.budget.index', compact('year', 'departments', 'requests', 'groupTotals', 'periodStatus', 'approvers'));
+        $fundings = GroupFunding::with('rekening')->where('tahun', $year)->whereIn('grup_id', $departments->pluck('grup_id'))->get()->keyBy('grup_id');
+        $accounts = $request->user()->role === 'keuangan' ? Rekening::orderBy('nama_rekening')->get() : collect();
+        foreach ($accounts as $account) {
+            $account->committed_cents = app(GroupFundingService::class)->committed($account->id);
+            $account->free_cents = DepartmentBudgetService::cents($account->saldo ?? 0) - $account->committed_cents;
+        }
+
+        return view('backend.budget.index', compact('year', 'departments', 'requests', 'groupTotals', 'periodStatus', 'approvers', 'fundings', 'accounts'));
     }
 
     public function save(Request $request, DepartmentBudgetService $service)
@@ -60,6 +70,23 @@ class BudgetController extends Controller
         $service->setBudget((int) $data['departemen_id'], (int) $data['tahun'], (string) $data['jumlah'], $data['alasan']);
 
         return back()->with('success', 'Budget departemen disimpan.');
+    }
+
+    public function saveFunding(Request $request, GroupFundingService $service)
+    {
+        $data = $request->validate(['grup_id' => 'required|integer|exists:grup,id', 'tahun' => 'required|integer|min:2000|max:2100',
+            'rekening_id' => 'required|integer|exists:rekening,id', 'plafon' => 'required|numeric|decimal:0,2|min:0|max:9999999999999.99', 'alasan' => 'required|string|min:5|max:1000']);
+        $service->save((int) $data['grup_id'], (int) $data['tahun'], (int) $data['rekening_id'], (string) $data['plafon'], $data['alasan']);
+
+        return back()->with('success', 'Rekening sumber dan plafon grup disimpan. Saldo rekening belum berkurang.');
+    }
+
+    public function distribute(Request $request, GroupFundingService $service)
+    {
+        $data = $request->validate(['grup_id' => 'required|integer|exists:grup,id', 'tahun' => 'required|integer|min:2000|max:2100', 'alasan' => 'required|string|min:5|max:1000']);
+        $service->distribute((int) $data['grup_id'], (int) $data['tahun'], $data['alasan']);
+
+        return back()->with('success', 'Plafon grup dibagi rata ke seluruh departemen. Total alokasi sama dengan plafon.');
     }
 
     public function store(Request $request, DepartmentBudgetService $service)
@@ -189,7 +216,7 @@ class BudgetController extends Controller
             fputcsv($out, ['Waktu', 'Pengguna', 'Aksi', 'Objek', 'ID', 'Halaman', 'HTTP', 'Sebelum', 'Sesudah']);
             foreach ($query->orderBy('id')->lazyById(500) as $log) {
                 $row = [$log->created_at, $log->user?->name, $log->action, $log->subject_type, $log->subject_id, $log->route, $log->response_status, json_encode($log->before, JSON_UNESCAPED_UNICODE), json_encode($log->after, JSON_UNESCAPED_UNICODE)];
-                fputcsv($out,array_map(fn ($v) => preg_match('/^[=+@-]/u',(string) $v) ? "'".$v : $v,$row));
+                fputcsv($out, array_map(fn ($v) => preg_match('/^[=+@-]/u', (string) $v) ? "'".$v : $v, $row));
             }fclose($out);
         }, 'audit-'.now()->format('Ymd').'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }

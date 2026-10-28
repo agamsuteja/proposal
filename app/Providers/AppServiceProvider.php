@@ -14,6 +14,7 @@ use App\Models\BudgetReversal;
 use App\Models\BudgetTransfer;
 use App\Models\Departemen;
 use App\Models\DepartmentBudget;
+use App\Models\GroupFunding;
 use App\Models\Grup;
 use App\Models\LampiranProposal;
 use App\Models\LogProposal;
@@ -75,7 +76,7 @@ class AppServiceProvider extends ServiceProvider
             PencairanDana::class, PengembalianDana::class, Rekening::class,
             LampiranProposal::class, MaintenanceItem::class,
             MaintenanceProposal::class, LogProposal::class,
-            AuthChallenge::class, NotificationMessage::class, BudgetPeriod::class,
+            AuthChallenge::class, NotificationMessage::class, BudgetPeriod::class, GroupFunding::class,
             BudgetAdjustment::class, BudgetRequestVersion::class, BudgetReversal::class,
             NotaPenggunaanProposal::class, DepartmentBudget::class,
             BudgetRequest::class, BudgetApproval::class, BudgetTransfer::class,

@@ -72,3 +72,7 @@ Jika suatu tabel sudah ada, `IF NOT EXISTS` melewatinya; ini tidak menjamin stru
 ## Pembaruan keamanan 28 Oktober 2026
 
 Panduan operasional terkini ada di [SECURITY_UPDATE_2026-10-28.md](SECURITY_UPDATE_2026-10-28.md). Perubahan ini menambah SQL manual baru, verifikasi akun, pemeriksaan hak akses, cadangan budget, koreksi transfer, periode, notifikasi dan perlindungan dokumen. Rumus saldo tersedia kini memperhitungkan cadangan proposal disetujui. Alokasi dapat disesuaikan oleh keuangan dengan alasan tercatat, termasuk setelah ada transfer. Petunjuk migrasi/larangan penyesuaian alokasi pada bagian lama merupakan riwayat implementasi dan bukan prosedur hosting terbaru.
+
+## Pembaruan pendanaan grup
+
+Alokasi kini wajib didukung rekening sumber dan plafon grup/tahun. Lihat [GROUP_FUNDING.md](GROUP_FUNDING.md) untuk pembagian rata, pengajuan tambahan antar-departemen dalam grup, SQL manual baru, serta penanganan periode/data legacy. Penjelasan lama tentang alokasi yang bebas dari pendanaan rekening telah digantikan.

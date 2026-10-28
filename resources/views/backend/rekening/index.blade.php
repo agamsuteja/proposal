@@ -280,7 +280,7 @@
                                 <th>Nama Rekening</th>
                                 <th>Bank</th>
                                 <th>Nomor Rekening</th>
-                                <th class="text-end">Saldo</th>
+                                <th class="text-end">Saldo rekening</th><th class="text-end">Terikat untuk grup</th><th class="text-end">Belum terikat</th>
                                 <th class="text-end" style="width: 15%">Aksi</th>
                             </tr>
                         </thead>
@@ -301,8 +301,10 @@
                                 </td>
                                 <td class="account-number">{{ $r->nomor_rekening ?? '-' }}</td>
                                 <td class="text-end balance-positive">
-                                    Rp {{ number_format($r->saldo, 0, ',', '.') }}
+                                    Rp {{ number_format($r->saldo, 2, ',', '.') }}
                                 </td>
+                                <td class="text-end">Rp {{ number_format($r->committed_cents / 100, 2, ',', '.') }}</td>
+                                <td class="text-end {{ $r->free_cents < 0 ? 'text-danger' : 'balance-positive' }}">Rp {{ number_format($r->free_cents / 100, 2, ',', '.') }}</td>
                                 <td class="action-cell">
                                     <a href="{{ route('admin.rekening.edit', $r->id) }}" 
                                        class="btn-action btn-edit"

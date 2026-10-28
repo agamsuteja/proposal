@@ -8,8 +8,10 @@ use App\Models\Departemen;
 use App\Models\DepartmentBudget;
 use App\Models\Grup;
 use App\Models\Proposal;
+use App\Models\Rekening;
 use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
+use App\Services\GroupFundingService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -47,6 +49,8 @@ class DepartmentBudgetTest extends TestCase
         $this->groupHead = $this->user('group_head', $this->it);
         $this->pastor = $this->user('gembala', $this->it);
         $this->finance = $this->user('keuangan', $this->it);
+        $account = Rekening::create(['nama_rekening' => 'Office Fund', 'saldo' => '20000000']);
+        app(GroupFundingService::class)->save($office->id, 2026, $account->id, '20000000', 'Pendanaan awal tes');
         $this->budgets = app(Budgets::class);
         $this->budgets->setBudget($this->it->id, 2026, '5000000.00');
         $this->budgets->setBudget($this->data->id, 2026, '5000000.00');
@@ -115,6 +119,8 @@ class DepartmentBudgetTest extends TestCase
         $third = Departemen::create(['grup_id' => $this->it->grup_id, 'nama_departemen' => 'HR']);
         $other = Departemen::create(['grup_id' => Grup::create(['nama_grup' => 'Other'])->id, 'nama_departemen' => 'Other']);
         $this->budgets->setBudget($third->id, 2026, '2000000');
+        $bank = Rekening::create(['nama_rekening' => 'Other Fund', 'saldo' => '2000000']);
+        app(GroupFundingService::class)->save($other->grup_id, 2026, $bank->id, '2000000', 'Pendanaan grup lain');
         $this->budgets->setBudget($other->id, 2026, '2000000');
         $request = $this->requestBudget('6000000');
         $this->approve($request);
@@ -177,7 +183,7 @@ class DepartmentBudgetTest extends TestCase
     {
         $proposal = DB::table('proposal')->insertGetId(['departemen_id' => $this->it->id, 'user_id' => $this->employee->id,
             'judul' => 'Test', 'tanggal_pengajuan' => '2026-01-01', 'total_anggaran' => '6000000', 'status' => 'disetujui_senior_pastor']);
-        $account = DB::table('rekening')->insertGetId(['nama_rekening' => 'Local', 'saldo' => '20000000']);
+        $account = Rekening::firstOrFail()->id;
         $data = ['operation_id' => (string) Str::uuid(), 'proposal_id' => $proposal, 'rekening_id' => $account, 'jumlah_dana' => '6000000', 'metode' => 'cash', 'catatan' => 'Test'];
         $this->actingAs($this->employee)->postJson(route('admin.pencairan.store'), $data)->assertForbidden();
         $this->actingAs($this->finance)->post(route('admin.pencairan.store'), $data)->assertSessionHasErrors('jumlah_dana');

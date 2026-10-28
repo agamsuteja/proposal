@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
 use App\Services\FinancialBalance;
 use App\Services\FonnteService;
+use App\Services\GroupFundingService;
 use App\Services\NotificationService;
 use App\Services\ReportQuery;
 use App\Support\Money;
@@ -69,6 +70,8 @@ class SecurityWorkflowTest extends TestCase
         $this->head = $this->user('departemen_head');
         $this->groupHead = $this->user('group_head');
         $this->pastor = $this->user('gembala');
+        $bank = Rekening::create(['nama_rekening' => 'Bank', 'saldo' => '20000000']);
+        app(GroupFundingService::class)->save($group->id, 2026, $bank->id, '20000000', 'Pendanaan awal tes');
         app(Budgets::class)->setBudget($this->it->id, 2026, '5000000');
         app(Budgets::class)->setBudget($this->data->id, 2026, '5000000');
         $this->sender = new class extends FonnteService
@@ -109,7 +112,7 @@ class SecurityWorkflowTest extends TestCase
 
     private function account(): Rekening
     {
-        return Rekening::create(['nama_rekening' => 'Bank', 'saldo' => '10000000']);
+        return Rekening::firstOrFail();
     }
 
     private function paid(string $receipts = '0'): Proposal
@@ -139,7 +142,7 @@ class SecurityWorkflowTest extends TestCase
         $account = $this->account();
         $this->actingAs($this->employee)->putJson(route('admin.rekening.update', $account->id), ['nama_rekening' => 'Bank', 'saldo' => '9999999'])->assertForbidden();
         $this->postJson(route('admin.departemen.store'), ['nama_departemen' => 'Forged', 'grup_id' => $this->it->grup_id])->assertForbidden();
-        $this->assertSame(1000000000, Budgets::cents($account->fresh()->saldo));
+        $this->assertSame(2000000000, Budgets::cents($account->fresh()->saldo));
     }
 
     public function test_inactive_and_password_changed_sessions_are_rejected(): void
@@ -316,6 +319,8 @@ class SecurityWorkflowTest extends TestCase
 
     public function test_closed_period_blocks_financial_changes_and_copy_does_not_overwrite(): void
     {
+        $newYearBank = Rekening::create(['nama_rekening' => '2027 Fund', 'saldo' => '20000000']);
+        app(GroupFundingService::class)->save($this->it->grup_id, 2027, $newYearBank->id, '20000000', 'Pendanaan tahun baru');
         $this->actingAs($this->finance)->postJson(route('admin.budget.copy'), ['sumber' => 2026, 'tujuan' => 2027, 'alasan' => 'Rencana anggaran tahun berikutnya'])->assertRedirect();
         $this->postJson(route('admin.budget.copy'), ['sumber' => 2026, 'tujuan' => 2027, 'alasan' => 'Percobaan menimpa data'])->assertUnprocessable();
         $this->postJson(route('admin.budget.period'), ['tahun' => 2026, 'status' => 'closed', 'alasan' => 'Rekonsiliasi tahun selesai'])->assertRedirect();
@@ -363,7 +368,7 @@ class SecurityWorkflowTest extends TestCase
         $this->assertDatabaseCount('pencairan_dana', 1);
         $data['jumlah_dana'] = '500000';
         $this->postJson(route('admin.pencairan.store'), $data)->assertStatus(409);
-        $this->assertSame(975000000, Budgets::cents($account->fresh()->saldo));
+        $this->assertSame(1975000000, Budgets::cents($account->fresh()->saldo));
     }
 
     public function test_email_header_injection_and_invalid_money_formats_are_rejected(): void
@@ -426,6 +431,6 @@ class SecurityWorkflowTest extends TestCase
         $xml = $zip->getFromName('xl/worksheets/sheet1.xml');
         $zip->close();
         $this->assertIsString($xml);
-        $this->assertDoesNotMatchRegularExpression('/<f(?:\s|>)/',$xml);
+        $this->assertDoesNotMatchRegularExpression('/<f(?:\s|>)/', $xml);
     }
 }

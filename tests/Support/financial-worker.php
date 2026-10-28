@@ -1,9 +1,12 @@
 <?php
 
+use App\Http\Controllers\Backend\BudgetController;
 use App\Http\Controllers\Backend\PencairanDanaController;
 use App\Http\Controllers\Backend\PengembalianDanaController;
 use App\Models\User;
+use App\Services\DepartmentBudgetService;
 use App\Services\FonnteService;
+use App\Services\GroupFundingService;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -38,8 +41,13 @@ while (microtime(true) < (float) $start) {
     usleep(1000);
 }
 try {
-    $controller = $kind === 'payout' ? new PencairanDanaController : new PengembalianDanaController;
-    $response = $controller->store($request);
+    $response = match ($kind) {
+        'payout' => (new PencairanDanaController)->store($request),
+        'refund' => (new PengembalianDanaController)->store($request),
+        'funding' => (new BudgetController)->saveFunding($request, app(GroupFundingService::class)),
+        'allocation' => (new BudgetController)->save($request, app(DepartmentBudgetService::class)),
+        default => throw new RuntimeException('Unsupported financial test'),
+    };
     echo $response->getStatusCode();
 } catch (ValidationException $e) {
     echo '422';

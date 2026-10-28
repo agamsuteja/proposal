@@ -145,3 +145,7 @@ npm run build
 Hasil validasi PHP 8.2: 41 tes dan 330 assertions lulus pada MariaDB dengan schema legacy, termasuk tiga tes transaksi paralel. Instalasi produksi tanpa dependensi development juga diperiksa. Tampilan budget, pengajuan, audit, dan notifikasi diperiksa pada lebar layar 390 piksel.
 
 Tes menggunakan akun sintetis dan database terpisah. Tiga tes concurrency hanya dijalankan pada MariaDB, sehingga ditandai skipped pada suite SQLite. SQL manual diuji dua kali pada schema legacy kosong. Metadata advisory diperiksa untuk paket lockfile; lima advisory Laravel 11 tetap tercantum. npm audit pada lockfile melaporkan nol advisory saat pemeriksaan, bukan jaminan tidak ada kerentanan baru di masa depan.
+
+## Pembaruan setelah audit: pendanaan rekening–grup
+
+Lihat [GROUP_FUNDING.md](GROUP_FUNDING.md). Sebelum menarik kode terbaru, impor juga `database/sql/2026_10_28_group_funding.sql`. Pendanaan grup sekarang membatasi total alokasi, rekening pencairan/refund, dan pengalokasian dana yang sama lintas grup/tahun. Penutupan periode memeriksa nota/refund yang belum selesai. Angka validasi dan perilaku yang disebut di atas adalah snapshot commit `390ccf1`; rincian perubahan ini ada pada panduan baru.
