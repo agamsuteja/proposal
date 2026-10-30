@@ -4,14 +4,17 @@ namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
 use App\Models\Departemen;
+use App\Models\BudgetPeriod;
 use App\Models\GroupFunding;
 use App\Models\PencairanDana;
 use App\Models\Proposal;
 use App\Models\Rekening;
 use App\Services\DepartmentBudgetService;
 use App\Services\FinancialOperation;
+use App\Services\FinancialBalance;
 use App\Services\GroupFundingService;
 use App\Services\NotificationService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -34,26 +37,61 @@ class PencairanDanaController extends Controller
             ->latest()
             ->get();
 
-        $fundings = GroupFunding::all()->keyBy(fn ($f) => $f->grup_id.'-'.$f->tahun);
-        foreach ($proposals as $proposal) {
-            $proposal->source_account_id = $fundings->get($proposal->departemen->grup_id.'-'.substr($proposal->tanggal_pengajuan, 0, 4))?->rekening_id;
-        }
-        $rekenings = Rekening::orderBy('nama_rekening')->get();
-
-        return view('backend.pencairan.index', compact('proposals', 'pencairans', 'rekenings'));
+        return view('backend.pencairan.index', compact('proposals', 'pencairans'));
     }
 
     public function show($id)
     {
+        return view('backend.pencairan.show', $this->detail($id));
+    }
+
+    public function exportPdf($id)
+    {
+        $data = $this->detail($id);
+        $data['balance'] = app(FinancialBalance::class)->values($data['proposal'], false);
+        $data['printedBy'] = auth()->user()->name;
+        $data['printedAt'] = now()->timezone('Asia/Jakarta')->format('d/m/Y H:i').' WIB';
+
+        return Pdf::loadView('backend.pencairan.report_pdf', $data)->setPaper('a4')->download('pencairan-proposal-'.$data['proposal']->id.'.pdf');
+    }
+
+    private function detail($id): array
+    {
         $proposal = Proposal::with([
             'user',
-            'departemen',
+            'departemen.grup',
             'items',
             'approval_flows.approver',
             'nota_penggunaan',
+            'pencairan.rekening',
         ])->findOrFail($id);
 
-        return view('backend.pencairan.show', compact('proposal'));
+        $year = (int) substr($proposal->tanggal_pengajuan, 0, 4);
+        $funding = GroupFunding::with('rekening')->where('grup_id', $proposal->departemen->grup_id)->where('tahun', $year)->first();
+        $sourceAccount = $funding?->rekening;
+        $paidCents = DepartmentBudgetService::cents($proposal->pencairan->sum('jumlah_dana'));
+        $remainingCents = max(0, DepartmentBudgetService::cents($proposal->total_anggaran) - $paidCents);
+        $spendableCents = app(DepartmentBudgetService::class)->spendable($proposal->departemen_id, $year, $proposal->id);
+        $maximumCents = max(0, min($remainingCents, $spendableCents, DepartmentBudgetService::cents($sourceAccount?->saldo ?? 0)));
+        $blockReason = null;
+        if (! $sourceAccount) {
+            $blockReason = 'Rekening sumber grup tahun '.$year.' belum ditetapkan. Lengkapi pendanaan di menu Budget Departemen.';
+        } elseif (BudgetPeriod::whereKey($year)->value('status') === 'closed') {
+            $blockReason = 'Periode budget '.$year.' ditutup. Buka kembali periode sebelum mencairkan dana.';
+        } else {
+            try {
+                app(GroupFundingService::class)->assertBacked($sourceAccount->id);
+            } catch (ValidationException $e) {
+                $blockReason = 'Pendanaan grup belum didukung saldo rekening yang cukup. Periksa pendanaan di menu Budget Departemen.';
+            }
+        }
+        if (! $blockReason && $remainingCents > 0 && $maximumCents === 0) {
+            $blockReason = 'Saldo rekening atau budget yang dapat digunakan belum mencukupi untuk pencairan.';
+        }
+        $canDisburse = auth()->user()->role === 'keuangan' && ! $blockReason && $maximumCents > 0
+            && in_array($proposal->status, ['disetujui_senior_pastor', 'dicairkan_sebagian']);
+
+        return compact('proposal', 'year', 'sourceAccount', 'paidCents', 'remainingCents', 'spendableCents', 'maximumCents', 'blockReason', 'canDisburse');
     }
 
     public function store(Request $request)

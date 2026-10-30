@@ -48,6 +48,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::resource('rekening', RekeningController::class)->except('show');
             Route::get('/pencairan', [PencairanDanaController::class, 'index'])->name('pencairan.index');
             Route::get('/pencairan/{id}', [PencairanDanaController::class, 'show'])->whereNumber('id')->name('pencairan.show');
+            Route::get('/pencairan/{id}/pdf', [PencairanDanaController::class, 'exportPdf'])->whereNumber('id')->name('pencairan.pdf');
             Route::get('/notifikasi', [NotificationController::class, 'index'])->name('notifications.index');
             Route::post('/notifikasi/{id}/retry', [NotificationController::class, 'retry'])->middleware('throttle:10,1')->whereNumber('id')->name('notifications.retry');
         });

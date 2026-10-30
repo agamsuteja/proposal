@@ -104,7 +104,7 @@
 /* ── Modal Styling ── */
 .pds-modal .modal-content { border:0; border-radius:14px; box-shadow:0 10px 40px rgba(0,0,0,.15) }
 .pds-modal .modal-header { background:linear-gradient(135deg,#7c3aed,#4c1d95); color:#fff; border-radius:14px 14px 0 0; padding:1rem 1.5rem; border:none }
-.pds-modal .modal-title { font-size:16px; font-weight:700 }
+.pds-modal .modal-title { font-size:16px; font-weight:700; color:#fff }
 .pds-modal .modal-body { padding:1.5rem }
 .pds-modal .modal-footer { border:none; padding:1rem 1.5rem 1.5rem; background:#f9fafb; border-radius:0 0 14px 14px }
 
@@ -161,6 +161,12 @@
     .pds-approval-timeline-item { padding:.875rem 1rem }
     .pds-approval-stage { font-size:12px }
 }
+@media (max-width:575.98px) {
+    .pds-modal .modal-dialog.modal-fullscreen-sm-down { width:100%; max-width:none; height:100%; margin:0 }
+    .pds-modal .modal-content { border-radius:0; min-height:100% }
+    .pds-modal .modal-header, .pds-modal .modal-footer { border-radius:0 }
+    .pds-modal .modal-body { padding:1rem; overflow-y:auto }
+}
 </style>
 
 <div class="pds-wrap container-fluid">
@@ -171,9 +177,10 @@
             <i class="fas fa-file-invoice-dollar"></i>
             Detail Proposal untuk Pencairan
         </h1>
-        {{-- <a href="{{ route('admin.pencairan.index') }}" class="pds-back-btn">
-            <i class="fas fa-arrow-left"></i> Kembali
-        </a> --}}
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <a href="{{ route('admin.pencairan.pdf', $proposal->id) }}" class="pds-back-btn"><i class="fas fa-file-pdf"></i> Cetak PDF Pencairan</a>
+            <a href="{{ route('admin.pencairan.index') }}" class="pds-back-btn">Kembali</a>
+        </div>
     </div>
 
     {{-- ═══ ALERTS ═══ --}}
@@ -186,6 +193,13 @@
         <div class="pds-note danger mb-3">
             <i class="fas fa-exclamation-circle" style="margin-right:5px"></i>
             {{ session('error') }}
+        </div>
+    @endif
+
+    @if($errors->any())
+        <div class="pds-note danger mb-3" role="alert">
+            <strong>Pencairan belum tersimpan.</strong>
+            <ul class="mb-0">@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
         </div>
     @endif
 
@@ -210,7 +224,7 @@
         <div class="pds-stat green">
             <div class="s-icon green"><i class="fas fa-coins"></i></div>
             <div class="s-label">Total Anggaran</div>
-            <div class="s-value">Rp {{ number_format($proposal->total_anggaran, 0, ',', '.') }}</div>
+            <div class="s-value">Rp {{ number_format($proposal->total_anggaran, 2, ',', '.') }}</div>
         </div>
 
         <div class="pds-stat blue">
@@ -287,7 +301,7 @@
                         </tr>
                         <tr>
                             <th><i class="fas fa-coins fa-sm" style="color:#c4b5fd;margin-right:5px"></i>Total Anggaran</th>
-                            <td class="td-amount">Rp {{ number_format($proposal->total_anggaran_manual ?? $proposal->total_anggaran, 0, ',', '.') }}</td>
+                            <td class="td-amount">Rp {{ number_format($proposal->total_anggaran_manual ?? $proposal->total_anggaran, 2, ',', '.') }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -322,7 +336,7 @@
                                     <td>{{ $item->tujuan_pembelian }}</td>
                                     <td>{{ $item->merk_tipe }}</td>
                                 @endif
-                                <td style="text-align:right" class="td-amount">Rp {{ number_format($item->anggaran,0,',','.') }}</td>
+                                <td style="text-align:right" class="td-amount">Rp {{ number_format($item->anggaran,2,',','.') }}</td>
                             </tr>
                         @empty
                             <tr>
@@ -337,7 +351,7 @@
                         <tr>
                             <td colspan="{{ $proposal->jenis === 'maintenance' ? 4 : 5 }}" style="text-align:right;font-weight:700;background:#f9fafb">Total Anggaran</td>
                             <td style="text-align:right;font-weight:700;color:#059669;background:#f9fafb">
-                                Rp {{ number_format($proposal->items->sum('anggaran'),0,',','.') }}
+                                Rp {{ number_format($proposal->items->sum('anggaran'),2,',','.') }}
                             </td>
                         </tr>
                     </tfoot>
@@ -351,7 +365,7 @@
                     <div class="pds-mobile-item">
                         <div class="pds-mobile-item-header">
                             <span class="pds-mobile-item-num">#{{ $i + 1 }}</span>
-                            <span class="pds-mobile-item-price">Rp {{ number_format($item->anggaran, 0, ',', '.') }}</span>
+                            <span class="pds-mobile-item-price">Rp {{ number_format($item->anggaran, 2, ',', '.') }}</span>
                         </div>
                         <div class="pds-mobile-item-name">{{ $item->nama_barang }}</div>
                         <div class="pds-mobile-detail-row">
@@ -384,7 +398,7 @@
                 @if($proposal->items && $proposal->items->count() > 0)
                     <div class="pds-mobile-total">
                         <span class="label">Total Anggaran:</span>
-                        <span class="value">Rp {{ number_format($proposal->items->sum('anggaran'), 0, ',', '.') }}</span>
+                        <span class="value">Rp {{ number_format($proposal->items->sum('anggaran'), 2, ',', '.') }}</span>
                     </div>
                 @endif
             </div>
@@ -404,10 +418,10 @@
             $totalCair = $proposal->pencairan->sum('jumlah_dana');
         @endphp
 
-        @if($totalRealisasi >= $totalCair)
+        @if($totalCair > 0 && $totalRealisasi >= $totalCair)
             <div class="pds-note success m-3">
                 <i class="fas fa-check-circle" style="margin-right:5px"></i>
-                Realisasi Selesai
+                Nota mencakup dana yang sudah dicairkan
             </div>
         @endif
 
@@ -433,7 +447,7 @@
                     <tr>
                         <td style="text-align:center">{{ $i + 1 }}</td>
                         <td class="td-main">{{ $nota->keterangan ?? '-' }}</td>
-                        <td style="text-align:right" class="td-amount">Rp {{ number_format($nota->jumlah,0,',','.') }}</td>
+                        <td style="text-align:right" class="td-amount">Rp {{ number_format($nota->jumlah,2,',','.') }}</td>
                         <td style="text-align:center">
                             <a href="{{ route('admin.documents.show', ['path' => $nota->file_nota]) }}" target="_blank" class="pds-bukti-btn">
                                 <i class="fas fa-eye"></i> Lihat
@@ -446,7 +460,7 @@
                     <tr>
                         <td colspan="2" style="text-align:right;font-weight:700;background:#f9fafb">Total Realisasi</td>
                         <td style="text-align:right;font-weight:700;color:#059669;background:#f9fafb">
-                            Rp {{ number_format($totalRealisasi,0,',','.') }}
+                            Rp {{ number_format($totalRealisasi,2,',','.') }}
                         </td>
                         <td></td>
                     </tr>
@@ -543,180 +557,126 @@
         </div>
     </div>
 
-    {{-- ═══ TOMBOL CAIRKAN ═══ --}}
     @php
-        $totalCair = $proposal->pencairan->sum('jumlah_dana');
-        $sisaDana  = $proposal->total_anggaran - $totalCair;
+        $rupiah = fn ($cents) => 'Rp '.number_format($cents / 100, 2, ',', '.');
+        $needsPayout = in_array($proposal->status, ['disetujui_senior_pastor', 'dicairkan_sebagian']) && $remainingCents > 0;
     @endphp
-
-    @if(in_array($proposal->status, ['disetujui_senior_pastor', 'dicairkan_sebagian']) && $sisaDana > 0)
-        <div class="pds-disb-info">
-            <div style="margin-bottom:.5rem">
-                <span class="label">Sudah Dicairkan:</span>
-                <div class="value">Rp {{ number_format($totalCair, 0, ',', '.') }}</div>
-            </div>
-            <div>
-                <span class="label">Sisa Dana:</span>
-                <div class="value">Rp {{ number_format($sisaDana, 0, ',', '.') }}</div>
-            </div>
-        </div>
-        <button class="pds-btn-cair" data-bs-toggle="modal" data-bs-target="#cairModal{{ $proposal->id }}">
-            <i class="fas fa-money-bill-wave"></i> Cairkan Dana
-        </button>
-    @endif
-
-</div>
-
-{{-- ═══ MODAL PENCAIRAN ═══ --}}
-<div class="modal fade pds-modal" id="cairModal{{ $proposal->id }}" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg modal-fullscreen-sm-down">
-    <div class="modal-content">
-      <form action="{{ route('admin.pencairan.store') }}" method="POST" enctype="multipart/form-data" class="needs-validation" novalidate>
-        @csrf<input type="hidden" name="operation_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
-        <input type="hidden" name="proposal_id" value="{{ $proposal->id }}">
-
-        {{-- HEADER --}}
-        <div class="modal-header">
-            <h5 class="modal-title">
-                <i class="fas fa-money-bill-wave me-2"></i>Cairkan Dana Proposal
-            </h5>
-            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-        </div>
-
-        {{-- BODY --}}
-        <div class="modal-body">
-            {{-- Info Proposal --}}
-            <div style="background:#f9fafb;border:0.5px solid #e5e7eb;border-radius:10px;padding:1rem;margin-bottom:1.5rem">
-                <strong style="color:#111;font-size:14px">{{ $proposal->judul }}</strong><br>
-                <span style="color:#6b7280;font-size:12px">
-                    Total Anggaran: <strong style="color:#059669">Rp {{ number_format($proposal->total_anggaran, 0, ',', '.') }}</strong><br>
-                    Departemen: {{ $proposal->departemen->nama_departemen ?? '-' }}
-                </span>
-            </div>
-
-            {{-- Rekening --}}
-            <div class="pds-field">
-                <label><i class="fas fa-university fa-sm" style="margin-right:3px"></i>Pilih Rekening</label>
-                <select name="rekening_id" class="pds-select" required>
-                    <option value="">-- Pilih Rekening --</option>
-                    @foreach(\App\Models\Rekening::orderBy('nama_rekening')->get() as $r)
-                        <option value="{{ $r->id }}">
-                            {{ $r->nama_rekening }} (Saldo: Rp {{ number_format($r->saldo, 0, ',', '.') }})
-                        </option>
-                    @endforeach
-                </select>
-            </div>
-
-            {{-- Metode Pencairan --}}
-            <div class="pds-field">
-                <label class="mb-2"><i class="fas fa-exchange-alt fa-sm" style="margin-right:3px"></i>Metode Pencairan</label>
-                <div class="pds-radio-group">
-                    <label class="pds-radio">
-                        <input class="metode-pencairan" type="radio" name="metode" id="transfer{{ $proposal->id }}" value="transfer" required>
-                        <i class="fas fa-university"></i> Transfer
-                    </label>
-                    <label class="pds-radio">
-                        <input class="metode-pencairan" type="radio" name="metode" id="cash{{ $proposal->id }}" value="cash">
-                        <i class="fas fa-money-bill"></i> Cash
-                    </label>
-                </div>
-            </div>
-
-            {{-- Jumlah Dana --}}
-            <div class="pds-field">
-                <label><i class="fas fa-coins fa-sm" style="margin-right:3px"></i>Jumlah Dana (Rp)</label>
-                <div class="pds-currency-wrap">
-                    <span class="currency-prefix">Rp</span>
-                    <input type="text"
-                          id="jumlahDana{{ $proposal->id }}"
-                          name="jumlah_dana"
-                          class="pds-input uang-format"
-                          value="{{ number_format($sisaDana, 0, ',', '.') }}"
-                          data-max="{{ $sisaDana }}"
-                          required>
-                </div>
-                <div class="pds-input-hint">Maksimal pencairan: Rp {{ number_format($sisaDana, 0, ',', '.') }}</div>
-            </div>
-
-            {{-- Catatan --}}
-            <div class="pds-field">
-                <label><i class="fas fa-sticky-note fa-sm" style="margin-right:3px"></i>Catatan (Opsional)</label>
-                <textarea name="catatan" class="pds-textarea" placeholder="Tambahkan keterangan bila diperlukan..."></textarea>
-            </div>
-
-            {{-- Upload Bukti Transfer --}}
-            <div class="pds-field" id="buktiTransferGroup{{ $proposal->id }}" style="display: none;">
-                <label><i class="fas fa-paperclip fa-sm" style="margin-right:3px"></i>Upload Bukti Transfer</label>
-                <div class="pds-file-upload">
-                    <input type="file" name="bukti_transfer" id="buktiFile{{ $proposal->id }}" accept=".pdf,.jpg,.jpeg,.png">
-                    <label for="buktiFile{{ $proposal->id }}">
-                        <i class="fas fa-cloud-upload-alt"></i><br>
-                        Klik untuk upload (PDF/JPG/PNG)
-                    </label>
-                </div>
-                <div class="pds-input-hint">*Wajib diisi jika metode Transfer</div>
-            </div>
-        </div>
-
-        {{-- FOOTER --}}
-        <div class="modal-footer">
-            <button type="button" class="pds-btn" style="background:#f3f4f6;color:#374151;border:0.5px solid #e5e7eb" data-bs-dismiss="modal">
-                <i class="fas fa-times"></i> Batal
-            </button>
-            <button type="submit" class="pds-btn" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff">
-                <i class="fas fa-check-circle"></i> Cairkan
-            </button>
-        </div>
-      </form>
+    <div class="pds-disb-info">
+        <div><span class="label">Total sudah dicairkan</span><div class="value">{{ $rupiah($paidCents) }}</div></div>
+        <div><span class="label">Sisa anggaran yang belum dicairkan</span><div class="value">{{ $rupiah($remainingCents) }}</div></div>
+        <div class="pds-input-hint" style="margin-top:10px">Pencairan boleh dilakukan beberapa tahap. Total seluruh tahap tidak boleh melebihi anggaran yang disetujui. Pengembalian dana tidak menambah batas pencairan proposal.</div>
     </div>
-  </div>
+
+    <div class="pds-card" id="riwayat-pencairan">
+        <div class="pds-card-header"><span>Riwayat pencairan per tahap</span></div>
+        <div class="table-responsive">
+            <table class="pds-table">
+                <thead><tr><th style="width:auto">Tahap / Waktu</th><th style="width:auto">Rekening</th><th style="width:auto">Nominal / Metode</th><th style="width:auto">Catatan / Bukti</th></tr></thead>
+                <tbody>
+                @forelse($proposal->pencairan->sortBy('id') as $payment)
+                    <tr>
+                        <td>Tahap {{ $loop->iteration }}<br><small>{{ $payment->created_at?->timezone('Asia/Jakarta')->format('d/m/Y H:i') }} WIB</small></td>
+                        <td>{{ $payment->rekening?->nama_rekening ?? '—' }}</td>
+                        <td>{{ $rupiah(\App\Services\DepartmentBudgetService::cents($payment->jumlah_dana)) }}<br>{{ $payment->metode === 'transfer' ? 'Transfer bank' : 'Tunai' }}</td>
+                        <td>{{ $payment->catatan ?: '—' }}@if($payment->bukti_transfer)<br><a class="pds-bukti-btn" href="{{ route('admin.documents.show', ['path'=>$payment->bukti_transfer]) }}" target="_blank" rel="noopener">Lihat bukti transfer</a>@endif</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="4">Belum ada pencairan dana.</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if($needsPayout && $blockReason)
+        <div class="pds-note danger mb-3" role="alert">{{ $blockReason }}</div>
+    @endif
+    @if($canDisburse)
+        <button class="pds-btn-cair" data-bs-toggle="modal" data-bs-target="#cairModal{{ $proposal->id }}"><i class="fas fa-money-bill-wave"></i> Catat pencairan tahap berikutnya</button>
+    @elseif($proposal->status === 'dicairkan' && $remainingCents === 0)
+        <div class="pds-note success">Seluruh anggaran proposal telah dicairkan. Penyelesaian nota dan pengembalian sisa dana tetap dilakukan melalui detail proposal.</div>
+    @endif
 </div>
 
-{{-- SCRIPT --}}
+@if($canDisburse)
+<div class="modal fade pds-modal" id="cairModal{{ $proposal->id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-fullscreen-sm-down">
+        <div class="modal-content">
+            <form action="{{ route('admin.pencairan.store') }}" method="POST" enctype="multipart/form-data" data-payout-form>
+                @csrf
+                <input type="hidden" name="operation_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
+                <input type="hidden" name="proposal_id" value="{{ $proposal->id }}">
+                <input type="hidden" name="rekening_id" value="{{ $sourceAccount->id }}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Pencairan tahap {{ $proposal->pencairan->count() + 1 }}</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="pds-disb-info">
+                        <strong>{{ $proposal->judul }}</strong><br>
+                        Pemohon: {{ $proposal->user?->name ?? '—' }}<br>
+                        Departemen: {{ $proposal->departemen->nama_departemen }} · Grup: {{ $proposal->departemen->grup?->nama_grup ?? '—' }}<br>
+                        Anggaran disetujui: {{ $rupiah(\App\Services\DepartmentBudgetService::cents($proposal->total_anggaran)) }}<br>
+                        Sudah dicairkan: {{ $rupiah($paidCents) }}<br>
+                        Belum dicairkan: {{ $rupiah($remainingCents) }}
+                    </div>
+                    <div class="pds-field">
+                        <label id="labelRekeningSumber">Rekening sumber grup · Tahun {{ $year }}</label>
+                        <div class="pds-input" id="rekeningSumber" aria-labelledby="labelRekeningSumber" style="height:auto;white-space:normal;overflow-wrap:anywhere">{{ $sourceAccount->bank }} — {{ $sourceAccount->nama_rekening }}</div>
+                        <div class="pds-input-hint">Otomatis mengikuti pendanaan grup dan tahun proposal. Saldo rekening {{ $rupiah(\App\Services\DepartmentBudgetService::cents($sourceAccount->saldo)) }} adalah saldo bersama grup, bukan seluruhnya milik departemen ini.</div>
+                    </div>
+                    <div class="pds-field">
+                        <label for="nominalTahap">Nominal pencairan tahap ini (Rp)</label>
+                        <input class="pds-input" style="max-width:320px;text-align:left" id="nominalTahap" type="number" name="jumlah_dana" min="0.01" step="0.01" max="{{ \App\Services\DepartmentBudgetService::amount($maximumCents) }}" value="{{ (string) old('proposal_id') === (string) $proposal->id ? old('jumlah_dana') : '' }}" placeholder="Contoh: 1000000" required>
+                        <div class="pds-input-hint">Maksimal tahap ini: {{ $rupiah($maximumCents) }}, sesuai sisa anggaran, budget departemen, dan saldo rekening. Boleh mencairkan sebagian lalu melanjutkan tahap berikutnya. Ketik angka tanpa pemisah ribuan.</div>
+                    </div>
+                    <div class="pds-field">
+                        <label for="metodeTahap">Metode pencairan</label>
+                        <select class="pds-select" name="metode" id="metodeTahap" required>
+                            <option value="">— Pilih metode —</option>
+                            <option value="cash" @selected(old('metode') === 'cash')>Tunai</option>
+                            <option value="transfer" @selected(old('metode') === 'transfer')>Transfer bank</option>
+                        </select>
+                    </div>
+                    <div class="pds-field">
+                        <label for="catatanTahap">Catatan pencairan (wajib)</label>
+                        <textarea class="pds-textarea" name="catatan" id="catatanTahap" maxlength="500" rows="2" placeholder="Contoh: Tahap 1, uang muka pembelian mini PC" required>{{ old('catatan') }}</textarea>
+                    </div>
+                    <div class="pds-field" data-transfer-proof hidden>
+                        <label for="buktiTahap">Bukti transfer (wajib untuk transfer bank)</label>
+                        <input type="file" name="bukti_transfer" id="buktiTahap" accept=".pdf,.jpg,.jpeg,.png">
+                        <div class="pds-input-hint">PDF, JPG, atau PNG; maksimal 2 MB.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="pds-btn" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="pds-btn-cair">Simpan pencairan tahap ini</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  // Format input uang
-  document.querySelectorAll('.uang-format').forEach(input => {
-    formatInputValue(input);
-    input.addEventListener('input', e => formatInputValue(e.target));
-    input.form?.addEventListener('submit', () => {
-      input.value = input.value.replace(/[^0-9]/g, '');
+    const form = document.querySelector('[data-payout-form]');
+    if (!form) return;
+    const method = form.querySelector('[name="metode"]');
+    const proof = form.querySelector('[name="bukti_transfer"]');
+    function updateProof() {
+        const transfer = method.value === 'transfer';
+        form.querySelector('[data-transfer-proof]').hidden = !transfer;
+        proof.required = transfer;
+        proof.disabled = !transfer;
+    }
+    method.addEventListener('change', updateProof);
+    updateProof();
+    form.addEventListener('submit', function (event) {
+        if (!form.checkValidity()) { event.preventDefault(); form.reportValidity(); return; }
+        const button = form.querySelector('[type="submit"]');
+        button.disabled = true;
+        button.textContent = 'Menyimpan pencairan…';
     });
-  });
-
-  // Batasi input sesuai sisa maksimal
-  document.querySelectorAll('.uang-format').forEach(input => {
-    input.addEventListener('blur', function() {
-      const max = parseFloat(this.dataset.max || 0);
-      let value = parseFloat(this.value.replace(/\./g, '').replace(/[^0-9]/g, '')) || 0;
-      if (max > 0 && value > max) {
-        alert('Jumlah dana melebihi sisa anggaran!');
-        this.value = new Intl.NumberFormat('id-ID').format(max);
-      }
-    });
-  });
-
-  // Tampilkan upload bukti jika metode transfer
-  document.querySelectorAll('.metode-pencairan').forEach(radio => {
-    radio.addEventListener('change', function () {
-      const id = this.id.replace(/[^0-9]/g, '');
-      const buktiGroup = document.getElementById(`buktiTransferGroup${id}`);
-      buktiGroup.style.display = this.value === 'transfer' ? 'block' : 'none';
-    });
-  });
-
-  function formatInputValue(input) {
-    let value = input.value.replace(/[^0-9]/g, '');
-    if (!value) return input.value = '';
-    input.value = new Intl.NumberFormat('id-ID').format(value);
-  }
-
-  // Tooltip initialization
-  var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-  tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el) });
 });
 </script>
-
+@endif
 @endsection
-
-

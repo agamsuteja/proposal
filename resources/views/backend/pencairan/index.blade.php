@@ -197,10 +197,10 @@
                         </td>
                         <td style="text-align:right">
                             <div style="font-weight:700;color:#059669;font-size:12px">
-                                Rp {{ number_format($p->total_anggaran, 0, ',', '.') }}
+                                Rp {{ number_format($p->total_anggaran, 2, ',', '.') }}
                             </div>
                             <div style="font-size:10.5px;color:#dc2626">
-                                Sisa: Rp {{ number_format($sisa, 0, ',', '.') }}
+                                Sisa: Rp {{ number_format($sisa, 2, ',', '.') }}
                             </div>
                         </td>
                         <td>
@@ -230,92 +230,6 @@
                             </div>
                         </td>
                     </tr>
-
-                    {{-- MODAL --}}
-                    <div class="modal fade pc-modal" id="cairModal{{ $p->id }}" tabindex="-1" aria-hidden="true">
-                        <div class="modal-dialog modal-dialog-centered modal-lg modal-fullscreen-sm-down">
-                            <div class="modal-content">
-                                <form action="{{ route('admin.pencairan.store') }}" method="POST" enctype="multipart/form-data">
-                                    @csrf<input type="hidden" name="operation_id" value="{{ (string) \Illuminate\Support\Str::uuid() }}">
-                                    <input type="hidden" name="proposal_id" value="{{ $p->id }}">
-                                    <div class="modal-header">
-                                        <div class="modal-title">
-                                            <i class="fas fa-money-bill-wave"></i> Cairkan Dana
-                                        </div>
-                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                                    </div>
-                                    <div class="modal-body">
-                                        <div class="pc-modal-info">
-                                            <div class="pc-modal-info-title">{{ $p->judul }}</div>
-                                            <div class="pc-modal-info-row">
-                                                <span>Departemen</span>
-                                                <span class="val">{{ $p->departemen->nama_departemen ?? '-' }}</span>
-                                            </div>
-                                            <div class="pc-modal-info-row">
-                                                <span>Total Anggaran</span>
-                                                <span class="val success">Rp {{ number_format($p->total_anggaran, 0, ',', '.') }}</span>
-                                            </div>
-                                            <div class="pc-modal-info-row">
-                                                <span>Sudah Cair</span>
-                                                <span class="val">Rp {{ number_format($totalCair, 0, ',', '.') }}</span>
-                                            </div>
-                                            <div class="pc-modal-info-row">
-                                                <span>Sisa Dana</span>
-                                                <span class="val danger">Rp {{ number_format($sisa, 0, ',', '.') }}</span>
-                                            </div>
-                                        </div>
-
-                                        <label class="pf-label">Rekening Sumber Grup</label>
-                                        <select name="rekening_id" required>
-                                            <option value="">— Pilih Rekening —</option>
-                                            @foreach($rekenings->where('id', $p->source_account_id) as $r)
-                                                <option value="{{ $r->id }}">
-                                                    {{ $r->bank }} — {{ $r->nama_rekening }} (Rp {{ number_format($r->saldo, 0, ',', '.') }})
-                                                </option>
-                                            @endforeach
-                                        </select>
-                                        <div class="pf-hint">Rekening pendanaan grup untuk tahun proposal. Jika kosong, tetapkan pendanaan di Budget Departemen.</div>
-
-                                        <label class="pf-label">Metode Pencairan</label>
-                                        <div class="metode-options">
-                                            <label class="metode-opt">
-                                                <input type="radio" class="metode-pencairan" name="metode" id="transfer{{ $p->id }}" value="transfer" required>
-                                                <span><i class="fas fa-exchange-alt me-1"></i>Transfer</span>
-                                            </label>
-                                            <label class="metode-opt">
-                                                <input type="radio" class="metode-pencairan" name="metode" id="cash{{ $p->id }}" value="cash">
-                                                <span><i class="fas fa-money-bill me-1"></i>Cash</span>
-                                            </label>
-                                        </div>
-
-                                        <label class="pf-label">Jumlah Dana (Rp)</label>
-                                        <input type="text" class="uang-format" name="jumlah_dana"
-                                               value="{{ number_format($sisa, 0, ',', '.') }}"
-                                               data-max="{{ $sisa }}" required>
-                                        <div class="pf-hint">Maksimal: Rp {{ number_format($sisa, 0, ',', '.') }}</div>
-
-                                        <label class="pf-label">Catatan (Opsional)</label>
-                                        <textarea name="catatan" rows="2" placeholder="Tambahkan keterangan bila perlu..."></textarea>
-                                        <div class="pf-hint"></div>
-
-                                        <div id="buktiTransferGroup{{ $p->id }}" style="display:none">
-                                            <label class="pf-label">Upload Bukti Transfer</label>
-                                            <input type="file" name="bukti_transfer" accept=".pdf,.jpg,.jpeg,.png">
-                                            <div class="pf-hint" style="color:#dc2626">Wajib diisi jika metode Transfer</div>
-                                        </div>
-                                    </div>
-                                    <div class="modal-footer">
-                                        <button type="button" class="pc-modal-btn pc-modal-btn-cancel" data-bs-dismiss="modal">
-                                            <i class="fas fa-times"></i> Batal
-                                        </button>
-                                        <button type="submit" class="pc-modal-btn pc-modal-btn-confirm">
-                                            <i class="fas fa-check-circle"></i> Cairkan Dana
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
 
                     @empty
                     <tr>
@@ -362,11 +276,11 @@
             <div style="background:#f9fafb;border-radius:9px;padding:.625rem .875rem;margin:.5rem 0">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.375rem">
                     <span style="font-size:11px;color:#6b7280">Total Anggaran</span>
-                    <span style="font-weight:700;font-size:13px;color:#059669">Rp {{ number_format($p->total_anggaran,0,',','.') }}</span>
+                    <span style="font-weight:700;font-size:13px;color:#059669">Rp {{ number_format($p->total_anggaran,2,',','.') }}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.375rem">
                     <span style="font-size:11px;color:#6b7280">Sisa Dana</span>
-                    <span style="font-weight:700;font-size:12px;color:#dc2626">Rp {{ number_format($sisa,0,',','.') }}</span>
+                    <span style="font-weight:700;font-size:12px;color:#dc2626">Rp {{ number_format($sisa,2,',','.') }}</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;font-size:10.5px;color:#6b7280;margin-bottom:3px">
                     <span>Progress Pencairan</span><span>{{ $persen }}%</span>
@@ -393,40 +307,6 @@
 
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    document.querySelectorAll('.metode-pencairan').forEach(radio => {
-        radio.addEventListener('change', function () {
-            const id = this.id.replace(/[^0-9]/g, '');
-            const buktiGroup = document.getElementById(`buktiTransferGroup${id}`);
-            if (buktiGroup) buktiGroup.style.display = this.value === 'transfer' ? 'block' : 'none';
-        });
-    });
 
-    document.querySelectorAll('.uang-format').forEach(input => {
-        formatVal(input);
-        input.addEventListener('input', e => formatVal(e.target));
-        input.form?.addEventListener('submit', () => {
-            input.value = input.value.replace(/[^0-9]/g, '');
-        });
-        input.addEventListener('blur', function () {
-            const max = parseFloat(this.dataset.max || 0);
-            let val = parseFloat(this.value.replace(/\./g, '').replace(/[^0-9]/g, '')) || 0;
-            if (max > 0 && val > max) {
-                alert('Jumlah dana melebihi sisa anggaran!');
-                this.value = new Intl.NumberFormat('id-ID').format(max);
-            }
-        });
-    });
-
-    function formatVal(input) {
-        let v = input.value.replace(/[^0-9]/g, '');
-        input.value = v ? new Intl.NumberFormat('id-ID').format(v) : '';
-    }
-
-    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-    tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el) });
-});
-</script>
 
 @endsection
