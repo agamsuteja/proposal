@@ -202,6 +202,8 @@
         </div>
       @endif
 
+      @if (session('info'))<div class="alert" style="background:#eff6ff;color:#1e40af;border-color:#3b82f6" role="status">{{ session('info') }}</div>@endif
+
       @if (session('success'))<div class="alert" style="background:#dcfce7;color:#166534;border-color:#22c55e" role="status">{{ session('success') }}</div>@endif
 
       @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif

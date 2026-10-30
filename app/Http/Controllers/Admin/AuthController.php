@@ -8,6 +8,7 @@ use App\Models\Departemen;
 use App\Models\Grup;
 use App\Models\NotificationMessage;
 use App\Models\User;
+use App\Services\FonnteService;
 use App\Services\NotificationService;
 use App\Services\WaTemplate;
 use Illuminate\Http\Request;
@@ -64,12 +65,15 @@ class AuthController extends Controller
     public function forgotPasswordSend(Request $request)
     {
         $request->validate(['email' => 'required|email|safe_email', 'nohp' => 'required|string|max:20']);
-        $user = User::where('email', $request->email)->where('nohp', $request->nohp)->where('is_active', 1)->first();
-        if ($user) {
+        $user = User::where('email', $request->email)->where('is_active', 1)->first();
+        $sender = app(FonnteService::class);
+        $requestedPhone = $sender->normalizePhone($request->nohp);
+        $storedPhone = $sender->normalizePhone($user?->nohp);
+        if ($user && $requestedPhone && $storedPhone && hash_equals($storedPhone, $requestedPhone)) {
             $this->issue($user, 'password_reset');
         }
 
-        return redirect()->route('admin.reset.form', ['email' => $request->email])->with('success', 'Permintaan reset diterima. Jika data cocok, sistem mencoba mengirim kode ke WhatsApp terdaftar. Jika belum diterima, coba lagi beberapa saat.');
+        return redirect()->route('admin.reset.form', ['email' => $request->email])->with('info', 'Permintaan reset diproses. Jika email dan nomor WhatsApp cocok dengan akun aktif, sistem mencoba mengirim OTP ke nomor terdaftar. Ini belum berarti pesan sudah terkirim. Jika belum masuk, periksa kembali data Anda atau hubungi admin untuk mengecek Status Notifikasi.');
     }
 
     public function resetPasswordForm(Request $request)

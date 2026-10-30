@@ -1,12 +1,14 @@
 <?php
 
 use App\Models\ActivityLog;
+use App\Models\AuthChallenge;
 use App\Models\BudgetRequest;
 use App\Models\GroupFunding;
 use App\Models\NotificationMessage;
 use App\Models\Rekening;
 use App\Models\User;
 use App\Services\DepartmentBudgetService;
+use App\Services\FonnteService;
 use App\Services\GroupFundingService;
 use App\Services\NotificationService;
 use Illuminate\Foundation\Inspiring;
@@ -132,3 +134,36 @@ Artisan::command('security:check', function () {
     }
     $this->line('Framework tetap Laravel 11. Pemeriksaan ini bukan sertifikasi bebas kerentanan framework.');
 })->purpose('Pemeriksaan read-only admin dan konsistensi dana lama');
+
+Artisan::command('auth:diagnose-reset {email} {--phone=}', function () {
+    $email = (string) $this->argument('email');
+    if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $this->error('Format email tidak valid.');
+
+        return 1;
+    }
+    $yes = fn ($condition) => $condition ? 'Ya' : 'Tidak';
+    $this->line('Diagnostik read-only: tidak mengirim OTP dan tidak mengubah akun.');
+    $user = User::where('email', $email)->first();
+    $this->line('Email ditemukan: '.$yes((bool) $user));
+    $this->line('Akun aktif: '.$yes($user && $user->is_active));
+    $sender = app(FonnteService::class);
+    $phone = $sender->normalizePhone($user?->nohp);
+    $this->line('Nomor terdaftar valid: '.$yes((bool) $phone));
+    if ($this->option('phone') !== null) {
+        $input = $sender->normalizePhone((string) $this->option('phone'));
+        $this->line('Nomor masukan cocok setelah normalisasi: '.$yes($phone && $input && hash_equals($phone, $input)));
+    }
+    $this->line('FONNTE_TOKEN tersedia di konfigurasi aktif: '.$yes((bool) config('services.fonnte.token')));
+    $this->line('Endpoint Fonnte menggunakan HTTPS: '.$yes(parse_url((string) config('services.fonnte.url'), PHP_URL_SCHEME) === 'https'));
+    if ($user) {
+        $challenge = AuthChallenge::where('user_id', $user->id)->where('purpose', 'password_reset')->first();
+        $this->line('Challenge reset belum kedaluwarsa: '.$yes($challenge && $challenge->expires_at->isFuture()));
+        $message = NotificationMessage::where('user_id', $user->id)->where('dedupe_key', 'like', 'auth-otp-password_reset-'.$user->id.'-%')->latest('id')->first();
+        $this->line('Outbox reset terakhir: '.($message ? 'ID '.$message->id.'; status '.$message->status.'; percobaan '.$message->attempts : 'Tidak ada'));
+        if ($message?->last_error) {
+            $this->line('Alasan gagal: '.$message->last_error);
+        }
+    }
+    $this->line('Token, kode OTP, isi pesan dan nomor lengkap tidak ditampilkan.');
+})->purpose('Diagnostik lupa password tanpa mengirim pesan atau membuka kredensial');

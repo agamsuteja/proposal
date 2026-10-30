@@ -22,6 +22,7 @@ use App\Services\GroupFundingService;
 use App\Services\NotificationService;
 use App\Services\ReportQuery;
 use App\Support\Money;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -659,5 +660,58 @@ class SecurityWorkflowTest extends TestCase
         $challenge->update(['expires_at' => now()->subSecond()]);
         $this->postJson(route('admin.reset.submit'), $data)->assertUnprocessable();
         $this->assertTrue(Hash::check('Audit-safe-password', $this->employee->fresh()->password));
+    }
+
+    public function test_reset_delivery_matches_equivalent_phone_formats_but_rejects_different_number(): void
+    {
+        $canonical = app(FonnteService::class)->normalizePhone($this->employee->nohp);
+        foreach (['+'.$canonical, '62 '.substr($canonical, 2)] as $phone) {
+            $this->post(route('admin.forgot.send'), ['email' => $this->employee->email, 'nohp' => $phone])->assertRedirect();
+        }
+        $this->assertDatabaseCount('notification_outbox', 2);
+        $this->assertSame(2, NotificationMessage::where('status', 'sent')->count());
+        $this->assertSame($canonical, NotificationMessage::latest('id')->firstOrFail()->target);
+        $this->post(route('admin.forgot.send'), ['email' => $this->employee->email, 'nohp' => $canonical.'9'])->assertRedirect();
+        $this->assertDatabaseCount('notification_outbox', 2);
+        $this->assertNotNull(session('info'));
+        $this->assertNull(session('success'));
+    }
+
+    public function test_reset_delivery_records_missing_token_and_safe_provider_failure_without_public_account_disclosure(): void
+    {
+        app()->instance(FonnteService::class, new FonnteService);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        config(['services.fonnte.token' => '', 'services.fonnte.url' => 'https://api.fonnte.com/send']);
+        $input = ['email' => $this->employee->email, 'nohp' => $this->employee->nohp];
+        $this->post(route('admin.forgot.send'), $input)->assertRedirect();
+        $first = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame('failed', $first->status);
+        $this->assertStringContainsString('FONNTE_TOKEN belum tersedia', $first->last_error);
+        Http::assertNothingSent();
+        $publicMessage = session('info');
+        config(['services.fonnte.token' => 'unit-test-credential-not-real']);
+        Http::fake(['api.fonnte.com/*' => Http::response(['status' => false, 'reason' => 'device disconnected; unit-test-credential-not-real'], 200)]);
+        $this->post(route('admin.forgot.send'), $input)->assertRedirect();
+        $latest = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame('failed', $latest->status);
+        $this->assertStringContainsString('Perangkat WhatsApp', $latest->last_error);
+        $this->assertStringNotContainsString('unit-test-credential-not-real', $latest->last_error);
+        Http::assertSentCount(1);
+        $this->post(route('admin.forgot.send'), ['email' => 'unknown@example.test', 'nohp' => $this->employee->nohp])->assertRedirect();
+        $this->assertSame($publicMessage, session('info'));
+        $this->assertDatabaseCount('notification_outbox', 2);
+    }
+
+    public function test_reset_delivery_diagnostic_is_read_only_and_does_not_send_otp(): void
+    {
+        config(['services.fonnte.token' => '']);
+        $this->artisan('auth:diagnose-reset', ['email' => $this->employee->email, '--phone' => '+'.app(FonnteService::class)->normalizePhone($this->employee->nohp)])
+            ->expectsOutput('Email ditemukan: Ya')->expectsOutput('Akun aktif: Ya')
+            ->expectsOutput('Nomor masukan cocok setelah normalisasi: Ya')
+            ->expectsOutput('FONNTE_TOKEN tersedia di konfigurasi aktif: Tidak')->assertExitCode(0);
+        $this->assertDatabaseCount('auth_challenges', 0);
+        $this->assertDatabaseCount('notification_outbox', 0);
+        Http::assertNothingSent();
     }
 }

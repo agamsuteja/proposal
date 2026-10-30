@@ -11,6 +11,13 @@ use Illuminate\Support\Facades\Log;
  */
 class FonnteService
 {
+    private ?string $failureReason = null;
+
+    public function failureReason(): ?string
+    {
+        return $this->failureReason;
+    }
+
     /**
      * Kirim pesan WhatsApp.
      *
@@ -18,10 +25,12 @@ class FonnteService
      */
     public function send(?string $nohp, string $pesan): bool
     {
+        $this->failureReason = null;
         $target = $this->normalizePhone($nohp);
 
         if (! $target) {
-            Log::error('Fonnte: nomor HP tidak valid', ['nohp' => $nohp]);
+            $this->failureReason = 'Nomor WhatsApp tujuan belum valid.';
+            Log::error('Fonnte: nomor HP tidak valid');
 
             return false;
         }
@@ -29,14 +38,15 @@ class FonnteService
         $token = config('services.fonnte.token');
 
         if (! $token) {
-            Log::error('Fonnte: FONNTE_TOKEN belum diisi di .env (lalu jalankan php artisan config:clear)');
+            $this->failureReason = 'FONNTE_TOKEN belum tersedia pada konfigurasi aplikasi. Lengkapi konfigurasi hosting dan jalankan config:clear.';
+            Log::error('Fonnte: token belum dikonfigurasi');
 
             return false;
         }
 
         try {
             Log::info('Fonnte: mengirim WA', [
-                'target' => $target,
+                'target_suffix' => substr($target, -4),
                 'length' => mb_strlen($pesan),
             ]);
 
@@ -61,23 +71,48 @@ class FonnteService
             // Fonnte membalas {"status": true, ...} jika sukses
             // dan {"status": false, "reason": "..."} jika gagal
             if ($response->successful() && is_array($data) && ($data['status'] ?? false) === true) {
-                Log::info('Fonnte: pesan diterima untuk dikirim ke '.$target);
+                Log::info('Fonnte: pesan diterima layanan', ['target_suffix' => substr($target, -4)]);
 
                 return true;
             }
 
+            $this->failureReason = $this->describeFailure($response->status(), is_array($data) ? ($data['reason'] ?? null) : null);
             Log::error('Fonnte: gagal kirim', [
-                'target' => $target,
+                'target_suffix' => substr($target, -4),
                 'http' => $response->status(),
                 'accepted' => false,
             ]);
 
             return false;
         } catch (\Throwable $e) {
-            Log::error('Fonnte: exception - '.$e->getMessage());
+            $this->failureReason = 'Koneksi ke Fonnte gagal atau melewati batas waktu. Periksa jaringan hosting, HTTPS, dan FONNTE_URL.';
+            Log::error('Fonnte: koneksi gagal', ['exception_type' => class_basename($e)]);
 
             return false;
         }
+    }
+
+    private function describeFailure(int $status, mixed $reason): string
+    {
+        // Never persist the raw provider response: it can contain phone numbers or credentials.
+        $reason = is_string($reason) ? strtolower($reason) : '';
+        if (in_array($status, [401, 403], true) || preg_match('/token|unauthor|invalid key/', $reason)) {
+            return 'Otorisasi Fonnte ditolak. Periksa token dan akun perangkat di dashboard Fonnte.';
+        }
+        if (preg_match('/device|disconnect|not connected/', $reason)) {
+            return 'Perangkat WhatsApp di Fonnte belum terhubung atau tidak aktif. Periksa koneksi perangkat.';
+        }
+        if (preg_match('/quota|credit|balance|subscription|package/', $reason)) {
+            return 'Kuota atau paket Fonnte tidak tersedia. Periksa masa aktif dan kuota pengiriman.';
+        }
+        if (preg_match('/target|number|invalid phone/', $reason)) {
+            return 'Fonnte menolak nomor tujuan. Periksa nomor WhatsApp terdaftar.';
+        }
+        if ($status === 429) {
+            return 'Fonnte membatasi permintaan pengiriman. Coba lagi sesuai jadwal retry.';
+        }
+
+        return 'Fonnte belum menerima pesan (HTTP '.$status.'). Periksa perangkat, paket, dan status layanan pada dashboard Fonnte.';
     }
 
     /**

@@ -59,9 +59,10 @@ class NotificationService
         if (! $row) {
             return NotificationMessage::findOrFail($id)->status === 'sent';
         }
-        $sent = app(FonnteService::class)->send($row->target, $row->message);
+        $sender = app(FonnteService::class);
+        $sent = $sender->send($row->target, $row->message);
         $row->update(['status' => $sent ? 'sent' : 'failed', 'sent_at' => $sent ? now() : null,
-            'last_error' => $sent ? null : 'Layanan WhatsApp belum menerima pesan. Periksa konfigurasi pengiriman.',
+            'last_error' => $sent ? null : ($sender->failureReason() ?? 'Layanan WhatsApp belum menerima pesan. Periksa konfigurasi pengiriman.'),
             'next_attempt_at' => $sent ? null : now()->addMinutes(min(60, 2 ** $row->attempts))]);
 
         return $sent;

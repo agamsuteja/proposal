@@ -167,3 +167,18 @@ Sebelum pull/deploy pembaruan nama acara, impor `database/sql/2026_10_28_event_n
 Halaman lupa password sekarang bertuliskan Kirim Kode OTP dan mengarahkan ke formulir email terdaftar, OTP WhatsApp enam digit, password baru dan konfirmasi. Input token link lama dihapus; route reset tidak menerima parameter token link. Kode berlaku 10 menit, disimpan sebagai hash, hanya dapat digunakan sekali, dan tetap tunduk pada pembatasan permintaan/verifikasi yang sudah ada. Password baru minimal 10 karakter. Permintaan untuk identitas yang tidak cocok tetap memakai pesan generik dan tidak menyatakan akun terdaftar atau pesan pasti terkirim.
 
 Penerbitan kode dan pencatatan outbox berada dalam transaksi yang sama. Retry pesan OTP pending/gagal untuk tujuan yang sama dibatalkan ketika kode baru diterbitkan atau kode dikonsumsi; notifikasi bisnis lain tidak disentuh. Kode yang sedang diproses layanan mungkin sudah terkirim; hanya challenge terbaru yang dapat diverifikasi. OTP/token/password tidak disimpan dalam old input setelah validasi gagal. Tidak ada SQL tambahan untuk pembaruan ini karena memakai auth_challenges dan notification_outbox yang sudah tersedia. Pengiriman nyata tetap memerlukan konfigurasi Fonnte yang benar; pengujian memakai pengirim palsu tanpa menghubungi pengguna.
+
+## 30 Oktober 2026 — diagnostik OTP tidak masuk ke Fonnte
+
+Pencocokan nomor lupa password sekarang membandingkan nomor terdaftar dan masukan setelah normalisasi (08, 628, +628, spasi/tanda pemisah), bukan persamaan teks mentah. OTP tetap hanya dikirim ke nomor yang tersimpan pada akun aktif; nomor berbeda tidak boleh dipakai mengganti tujuan. Jika akun/data tidak cocok, tidak ada pesan outbox dan Fonnte tidak dipanggil. Pemberitahuan publik sekarang bersifat informasi netral, bukan banner keberhasilan kirim, dan tetap tidak membocorkan keberadaan akun.
+
+Status Notifikasi menampilkan alasan aman untuk kegagalan konfigurasi token, otorisasi, perangkat, kuota, nomor tujuan, atau koneksi jika tersedia. Body balasan mentah dan exception yang mungkin berisi kredensial tidak disimpan sebagai alasan; token/OTP tidak ditampilkan. Status diterima layanan tetap bukan bukti WhatsApp penerima sudah menerima/membaca.
+
+Operator dapat menjalankan diagnostik read-only setelah menarik/deploy kode, tanpa pengiriman OTP:
+
+```sh
+cd /home/myey1771/public_html/proposal
+/opt/cpanel/ea-php82/root/usr/bin/php artisan auth:diagnose-reset EMAIL_TERDAFTAR --phone="NOMOR_YANG_DIMASUKKAN"
+```
+
+Ganti placeholder secara lokal; output hanya menunjukkan kecocokan/keaktifan akun, validitas/kecocokan nomor, apakah konfigurasi token tersedia, validitas challenge dan status/alasan outbox reset terakhir. Jangan mengirim isi .env, token Fonnte atau OTP ke chat. Tidak ada SQL tambahan. Keberhasilan pengiriman nyata tetap perlu diverifikasi pada hosting dan dashboard Fonnte.
