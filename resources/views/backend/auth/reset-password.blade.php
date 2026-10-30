@@ -79,7 +79,8 @@
       position: relative;
     }
 
-    .input-with-icon i {
+    /* PERBAIKAN: Menggunakan > agar hanya menargetkan icon kiri (email, lock, dll) */
+    .input-with-icon > i {
       position: absolute;
       left: 16px;
       top: 50%;
@@ -90,7 +91,8 @@
 
     .form-control {
       width: 100%;
-      padding: 12px 16px 12px 48px;
+      /* Padding kanan diubah dari 16px ke 48px agar teks tidak menabrak icon mata */
+      padding: 12px 48px 12px 48px;
       border: 2px solid #e2e8f0;
       border-radius: 12px;
       font-size: 16px;
@@ -172,7 +174,8 @@
       }
       
       .form-control {
-        padding: 10px 16px 10px 48px;
+        /* Menyesuaikan padding kanan untuk mobile */
+        padding: 10px 48px 10px 48px;
         font-size: 15px;
       }
       
@@ -183,6 +186,36 @@
     }
     html { display:block; min-height:100%; height:auto; padding:0; }
     body { width:100%; min-height:100vh; height:auto; padding:24px 16px; }
+
+    /* Toggle show/hide password */
+    .toggle-password {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      padding: 6px 8px;
+      cursor: pointer;
+      color: #64748b;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: color 0.2s ease, background 0.2s ease;
+      z-index: 10;
+    }
+
+    .toggle-password:hover {
+      color: #af1ebd;
+      background: rgba(175, 30, 189, 0.08);
+    }
+
+    .toggle-password:focus {
+      outline: none;
+      color: #af1ebd;
+    }
   </style>
 </head>
 
@@ -223,7 +256,10 @@
           <label class="form-label">Password Baru</label>
           <div class="input-with-icon">
             <i class="bi bi-lock"></i>
-            <input type="password" name="password" minlength="10" autocomplete="new-password" class="form-control" placeholder="Minimal 10 karakter" required>
+            <input type="password" name="password" id="new-password" minlength="10" autocomplete="new-password" class="form-control" placeholder="Minimal 10 karakter" required>
+            <button type="button" class="toggle-password" data-target="new-password" aria-label="Tampilkan password">
+              <i class="bi bi-eye"></i>
+            </button>
           </div>
         </div>
 
@@ -231,7 +267,10 @@
           <label class="form-label">Konfirmasi Password</label>
           <div class="input-with-icon">
             <i class="bi bi-lock-fill"></i>
-            <input type="password" name="password_confirmation" minlength="10" autocomplete="new-password" class="form-control" placeholder="Ulangi password baru" required>
+            <input type="password" name="password_confirmation" id="confirm-password" minlength="10" autocomplete="new-password" class="form-control" placeholder="Ulangi password baru" required>
+            <button type="button" class="toggle-password" data-target="confirm-password" aria-label="Tampilkan password">
+              <i class="bi bi-eye"></i>
+            </button>
           </div>
         </div>
 
@@ -243,6 +282,30 @@
       </div>
     </div>
   </div>
+
+  <!-- Script Toggle Password -->
+  <script>
+    document.querySelectorAll('.toggle-password').forEach(function(button) {
+      button.addEventListener('click', function () {
+        const targetId = this.getAttribute('data-target');
+        const input = document.getElementById(targetId);
+        const icon = this.querySelector('i');
+
+        const isHidden = input.type === 'password';
+        input.type = isHidden ? 'text' : 'password';
+        
+        icon.classList.toggle('bi-eye');
+        icon.classList.toggle('bi-eye-slash');
+        
+        this.setAttribute(
+          'aria-label',
+          isHidden ? 'Sembunyikan password' : 'Tampilkan password'
+        );
+        
+        input.focus();
+      });
+    });
+  </script>
 
 </body>
 </html>
