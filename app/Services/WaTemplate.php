@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\BudgetRequest;
+use App\Models\Proposal;
 
 /**
  * Template pesan WhatsApp yang dibuat seaman mungkin dari deteksi spam:
@@ -95,14 +96,35 @@ class WaTemplate
     }
 
     /** Ke Tim Keuangan: proposal disetujui Senior Pastor */
-    public static function proposalSiapDicairkan($judul, $total): string
+    public static function proposalSiapDicairkan(Proposal $proposal, string $nama, bool $pengingat = false): string
     {
-        return self::notif('Tim Keuangan', [
-            'Proposal berikut telah disetujui Senior Pastor dan siap diproses pencairannya.',
+        $proposal->loadMissing(['user', 'departemen.grup', 'approval_flows.approver']);
+        $pastor = $proposal->approval_flows->first(fn ($flow) => $flow->tahap === 'gembala' && $flow->status === 'disetujui');
+        $paid = DepartmentBudgetService::cents($proposal->pencairan()->sum('jumlah_dana'));
+        $remaining = max(0, DepartmentBudgetService::cents($proposal->total_anggaran) - $paid);
+        $isi = [
+            ($pengingat ? 'Pengingat: proposal' : 'Proposal').' #'.$proposal->id.' telah disetujui Gembala (Senior Pastor) dan siap diproses pencairannya.',
             '',
-            'Judul: ' . self::bersih($judul),
-            'Total anggaran: ' . self::rp($total),
-        ], 'Silakan buka aplikasi ' . self::APLIKASI . ' untuk memproses pencairan.');
+            'Judul: '.self::bersih($proposal->judul),
+            'Pemohon: '.self::bersih($proposal->user?->name ?? '-', 100),
+            'Departemen: '.self::bersih($proposal->departemen?->nama_departemen ?? '-', 150),
+            'Grup: '.self::bersih($proposal->departemen?->grup?->nama_grup ?? '-', 150),
+            'Jenis proposal: '.(['barang'=>'Pengadaan Barang', 'acara'=>'Kegiatan / Acara', 'maintenance'=>'Maintenance'][$proposal->jenis] ?? self::bersih($proposal->jenis, 60)),
+            'Tanggal pengajuan: '.\Illuminate\Support\Carbon::parse($proposal->tanggal_pengajuan)->format('d/m/Y'),
+            'Total anggaran disetujui: '.self::budgetRp($proposal->total_anggaran),
+            'Sudah dicairkan: '.self::budgetRp(DepartmentBudgetService::amount($paid)),
+            'Sisa dapat dicairkan: '.self::budgetRp(DepartmentBudgetService::amount($remaining)),
+            'Tujuan / alasan: '.(self::bersih($proposal->tujuan, 1000) ?: '-'),
+        ];
+        if ($proposal->keterangan) {
+            $isi[] = 'Keterangan: '.self::bersih($proposal->keterangan, 1000);
+        }
+        $isi[] = 'Disetujui Gembala: '.self::bersih($pastor?->approver?->name ?? '-', 100);
+        if ($pastor?->tanggal_approve) {
+            $isi[] = 'Waktu persetujuan: '.\Illuminate\Support\Carbon::parse($pastor->tanggal_approve)->timezone('Asia/Jakarta')->format('d/m/Y H:i').' WIB';
+        }
+
+        return self::notif($nama, $isi, 'Silakan buka menu Pencairan Dana di aplikasi '.self::APLIKASI.' untuk memeriksa rincian dan lampiran, lalu memproses pencairan dari rekening sumber grup. Persetujuan ini belum berarti dana sudah dicairkan.');
     }
 
     /** Ke Tim Keuangan: Group Head meminta konfirmasi ketersediaan dana */

@@ -107,7 +107,7 @@ class ApprovalProposalController extends Controller
                     app(NotificationService::class)->queue($next->approver->nohp, $message, 'Proposal menunggu persetujuan', $next->approver_id, 'proposal-approve-'.$flow->id.'-'.$flow->updated_at->timestamp);
                 } else {
                     foreach (User::where('role', 'keuangan')->where('is_active', 1)->get() as $finance) {
-                        app(NotificationService::class)->queue($finance->nohp, 'Proposal #'.$proposal->id.' '.$proposal->judul.' telah disetujui dan siap diproses keuangan.', 'Proposal disetujui', $finance->id, 'proposal-ready-'.$proposal->id.'-'.$flow->id.'-'.$finance->id);
+                        app(NotificationService::class)->queue($finance->nohp, WaTemplate::proposalSiapDicairkan($proposal, $finance->name), 'Proposal disetujui', $finance->id, 'proposal-ready-'.$proposal->id.'-'.$flow->id.'-'.$finance->id);
                     }
                 }
             }
@@ -153,10 +153,10 @@ class ApprovalProposalController extends Controller
             if ($finances->isEmpty()) {
                 return response()->json(['success' => false, 'message' => 'Belum ada akun keuangan aktif. Hubungi admin.'], 422);
             }
-            $message = $confirmation
-                ? WaTemplate::konfirmasiDanaKeuangan($request->user()->name, $proposal->judul, $proposal->departemen->nama_departemen, $proposal->total_anggaran)
-                : WaTemplate::proposalSiapDicairkan($proposal->judul, $proposal->total_anggaran);
             foreach ($finances as $finance) {
+                $message = $confirmation
+                    ? WaTemplate::konfirmasiDanaKeuangan($request->user()->name, $proposal->judul, $proposal->departemen->nama_departemen, $proposal->total_anggaran)
+                    : WaTemplate::proposalSiapDicairkan($proposal, $finance->name, true);
                 app(NotificationService::class)->queue($finance->nohp, $message,
                     $confirmation ? 'Konfirmasi dana sebelum persetujuan kepala grup' : 'Pengingat pencairan keuangan', $finance->id,
                     'finance-'.($confirmation ? 'confirm' : 'remind').'-'.$flow->id.'-'.($flow->updated_at?->format('Uu') ?? 'legacy').'-'.$finance->id);

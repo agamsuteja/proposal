@@ -501,6 +501,55 @@ class SecurityWorkflowTest extends TestCase
         $this->assertSame(0, NotificationMessage::where('user_id', $this->employee->id)->count());
     }
 
+    public function test_final_finance_notification_includes_owner_budget_and_pastor_without_disbursing(): void
+    {
+        $secondFinance = $this->user('keuangan');
+        $inactiveFinance = $this->user('keuangan');
+        $inactiveFinance->update(['is_active' => 0]);
+        $p = $this->proposal(amount: '1000000.50');
+        $p->update(['tujuan' => 'Pengadaan mini PC untuk pelayanan data', 'keterangan' => 'Perangkat lama perlu diganti']);
+        $before = Budgets::cents($this->account()->saldo);
+        foreach ([$this->head, $this->groupHead, $this->pastor] as $approver) {
+            $flow = $p->approval_flows()->where('approver_id', $approver->id)->firstOrFail();
+            $this->actingAs($approver)->putJson(route('admin.approval.update', $flow->id), ['status' => 'disetujui'])->assertRedirect();
+        }
+        $messages = NotificationMessage::where('subject', 'Proposal disetujui')->get();
+        $this->assertSame([$this->finance->id, $secondFinance->id], $messages->pluck('user_id')->map(fn ($id) => (int) $id)->all());
+        foreach ($messages as $notice) {
+            foreach (['Proposal #'.$p->id, 'telah disetujui Gembala (Senior Pastor)', 'Judul: Test proposal',
+                'Pemohon: '.$this->employee->name, 'Departemen: IT', 'Grup: Office', 'Jenis proposal: Kegiatan / Acara',
+                'Tanggal pengajuan: 01/01/2026', 'Total anggaran disetujui: Rp 1.000.000,50', 'Sudah dicairkan: Rp 0,00',
+                'Sisa dapat dicairkan: Rp 1.000.000,50', 'Tujuan / alasan: Pengadaan mini PC untuk pelayanan data',
+                'Keterangan: Perangkat lama perlu diganti', 'Disetujui Gembala: '.$this->pastor->name,
+                'Waktu persetujuan:', 'menu Pencairan Dana', 'belum berarti dana sudah dicairkan'] as $detail) {
+                $this->assertStringContainsString($detail, $notice->message);
+            }
+            $this->assertStringContainsString(User::findOrFail($notice->user_id)->name, $notice->message);
+            $this->assertStringNotContainsString('memohon konfirmasi', $notice->message);
+        }
+        $this->assertDatabaseCount('pencairan_dana', 0);
+        $this->assertSame($before, Budgets::cents($this->account()->fresh()->saldo));
+        $this->putJson(route('admin.approval.update', $flow->id), ['status' => 'disetujui'])->assertStatus(409);
+        $this->assertSame(2, NotificationMessage::where('subject', 'Proposal disetujui')->count());
+    }
+
+    public function test_finance_reminder_after_partial_payment_includes_actual_remaining_amount(): void
+    {
+        $p = $this->proposal('disetujui_senior_pastor', amount: '1000000.50');
+        PencairanDana::create(['proposal_id' => $p->id, 'rekening_id' => $this->account()->id, 'jumlah_dana' => '300000.25']);
+        $p->update(['status' => 'dicairkan_sebagian']);
+        $this->actingAs($this->groupHead)->postJson(route('admin.approval.notif-keuangan', $p->id))->assertOk();
+        $notice = NotificationMessage::where('subject', 'Pengingat pencairan keuangan')->firstOrFail();
+        foreach (['Pengingat: proposal #'.$p->id, 'Pemohon: '.$this->employee->name, 'Departemen: IT', 'Grup: Office',
+            'Total anggaran disetujui: Rp 1.000.000,50', 'Sudah dicairkan: Rp 300.000,25', 'Sisa dapat dicairkan: Rp 700.000,25',
+            'Tujuan / alasan: -', 'Disetujui Gembala: '.$this->pastor->name] as $detail) {
+            $this->assertStringContainsString($detail, $notice->message);
+        }
+        $this->postJson(route('admin.approval.notif-keuangan', $p->id))->assertOk();
+        $this->assertSame(1, NotificationMessage::where('subject', 'Pengingat pencairan keuangan')->count());
+        $this->assertDatabaseCount('pencairan_dana', 1);
+    }
+
     public function test_proposal_notifications_send_rejection_to_owner_with_revision_instructions_and_reason(): void
     {
         foreach ([$this->head, $this->groupHead, $this->pastor] as $index => $approver) {
