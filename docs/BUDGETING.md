@@ -76,3 +76,7 @@ Panduan operasional terkini ada di [SECURITY_UPDATE_2026-10-28.md](SECURITY_UPDA
 ## Pembaruan pendanaan grup
 
 Alokasi kini wajib didukung rekening sumber dan plafon grup/tahun. Lihat [GROUP_FUNDING.md](GROUP_FUNDING.md) untuk pembagian rata, pengajuan tambahan antar-departemen dalam grup, SQL manual baru, serta penanganan periode/data legacy. Penjelasan lama tentang alokasi yang bebas dari pendanaan rekening telah digantikan.
+
+## Deploy tanpa pull manual berulang
+
+Lihat [CPANEL_DEPLOY.md](CPANEL_DEPLOY.md). Setelah satu kali mengambil konfigurasi baru ke server, tombol **Deploy HEAD Commit** menjalankan sinkronisasi `origin/master` dan deployment dalam satu tugas. Commit dari komputer tetap harus di-push ke GitHub terlebih dahulu. Impor SQL manual tetap dilakukan bila rilis memerlukannya.

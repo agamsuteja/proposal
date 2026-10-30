@@ -182,3 +182,7 @@ cd /home/myey1771/public_html/proposal
 ```
 
 Ganti placeholder secara lokal; output hanya menunjukkan kecocokan/keaktifan akun, validitas/kecocokan nomor, apakah konfigurasi token tersedia, validitas challenge dan status/alasan outbox reset terakhir. Jangan mengirim isi .env, token Fonnte atau OTP ke chat. Tidak ada SQL tambahan. Keberhasilan pengiriman nyata tetap perlu diverifikasi pada hosting dan dashboard Fonnte.
+
+## 30 Oktober 2026 — sinkronisasi saat klik deploy
+
+`.cpanel.yml` memanggil wrapper sinkronisasi + deploy. Sesudah pemasangan satu kali, klik Deploy HEAD Commit akan mengambil master terbaru sebelum menjalankan script deploy versi terbaru. Lihat [CPANEL_DEPLOY.md](CPANEL_DEPLOY.md) untuk langkah pemasangan, push dari GitHub Desktop, batas metadata SHA cPanel, kredensial remote noninteraktif, serta penanganan konflik. Tidak ada SQL tambahan untuk perubahan ini.

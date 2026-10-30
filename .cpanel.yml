@@ -1,4 +1,4 @@
 ---
 deployment:
   tasks:
-    - /bin/bash /home/myey1771/public_html/proposal/scripts/deploy-cpanel.sh
+    - /bin/bash /home/myey1771/public_html/proposal/scripts/pull-and-deploy-cpanel.sh
