@@ -102,11 +102,58 @@
 .pds-btn-cair:hover { opacity:.88; transform:translateY(-1px); color:#fff }
 
 /* ── Modal Styling ── */
-.pds-modal .modal-content { border:0; border-radius:14px; box-shadow:0 10px 40px rgba(0,0,0,.15) }
-.pds-modal .modal-header { background:linear-gradient(135deg,#7c3aed,#4c1d95); color:#fff; border-radius:14px 14px 0 0; padding:1rem 1.5rem; border:none }
-.pds-modal .modal-title { font-size:16px; font-weight:700; color:#fff }
-.pds-modal .modal-body { padding:1.5rem }
-.pds-modal .modal-footer { border:none; padding:1rem 1.5rem 1.5rem; background:#f9fafb; border-radius:0 0 14px 14px }
+.pds-modal .modal-dialog { max-width:780px }
+.pds-modal .modal-content { max-height:calc(100dvh - 48px); overflow:hidden; border:0; border-radius:18px; box-shadow:0 24px 70px rgba(31,16,60,.24) }
+.pds-modal [data-payout-form] { display:flex; flex-direction:column; min-height:0; max-height:inherit; margin:0 }
+.pds-modal .modal-header { flex-shrink:0; justify-content:space-between; align-items:center; background:linear-gradient(120deg,#7c3aed,#4c1d95); color:#fff; padding:18px 22px; border:0; border-radius:0; gap:12px }
+.pds-modal .modal-title { font-size:17px; font-weight:800; color:#fff; margin:0; line-height:1.35 }
+.payout-heading { display:flex; align-items:center; gap:12px }
+.payout-heading-icon { display:grid; place-items:center; width:40px; height:40px; flex-shrink:0; border-radius:12px; background:rgba(255,255,255,.15); font-size:18px }
+.payout-heading p { margin:3px 0 0; font-size:12px; color:#ede9fe }
+.pds-modal .btn-close { flex-shrink:0; margin:0; padding:8px; opacity:.9; filter:brightness(0) invert(1) }
+.pds-modal .modal-body { flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:20px 22px; background:#fff }
+.payout-summary { padding:16px; border:1px solid #e9e3f1; border-radius:13px; background:#fcfbfe; margin-bottom:16px }
+.payout-summary h6 { font-size:15px; font-weight:800; color:#202538; margin:0 0 5px; line-height:1.4; overflow-wrap:anywhere }
+.payout-meta { color:#667085; font-size:11.5px; line-height:1.6; overflow-wrap:anywhere }
+.payout-amounts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:14px }
+.payout-amounts>div { min-width:0; padding:10px; border:1px solid #e8e9ef; background:#fff; border-radius:9px }
+.payout-amounts small { display:block; font-size:10px; color:#667085; margin-bottom:4px }
+.payout-amounts strong { display:block; font-size:14px; font-weight:800; color:#25314a; overflow-wrap:anywhere }
+.payout-amounts .payout-remaining { background:#f2ecff; border-color:#e5d9ff }
+.payout-remaining strong { color:#6d28d9 }
+.payout-source { padding:13px 14px; border:1px solid #e5e7eb; border-radius:11px; margin-bottom:18px; background:#f8fafc }
+.payout-source-heading { display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:7px }
+.payout-source-heading label { font-size:11px; font-weight:700; color:#667085; margin:0 }
+.payout-auto { border-radius:20px; background:#e8f7f1; color:#047857; padding:3px 8px; font-size:10px; font-weight:700 }
+.payout-source-name { font-size:13px; font-weight:700; color:#273448; overflow-wrap:anywhere }
+.payout-source p { margin:5px 0 0; font-size:11px; color:#667085; line-height:1.5 }
+.payout-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px }
+.pds-modal .pds-field { min-width:0; margin-bottom:16px }
+.pds-modal .pds-field label { text-transform:none; letter-spacing:0; font-size:12px; color:#344054; margin-bottom:7px }
+.pds-modal .pds-input, .pds-modal .pds-select, .pds-modal .pds-textarea { background:#fff; border:1px solid #dce0e8; border-radius:10px; font-size:13px; padding:11px 12px; line-height:1.5 }
+.payout-currency { position:relative }
+.payout-currency>span { position:absolute; left:12px; top:12px; font-size:13px; font-weight:700; color:#667085 }
+.payout-currency .pds-input { padding-left:40px }
+.pds-modal .pds-textarea { min-height:76px; max-height:150px }
+.pds-modal .pds-input-hint { color:#667085; font-size:11px; line-height:1.5; margin-top:6px }
+.payout-limit { color:#6d28d9; font-weight:700 }
+.payout-upload-wrap { position:relative }
+.payout-file-input { position:absolute; width:1px; height:1px; opacity:0 }
+.pds-modal .payout-upload { display:flex; align-items:center; gap:12px; border:1px dashed #cbb9eb; border-radius:11px; padding:13px; background:#fcfaff; cursor:pointer; margin:0 }
+.payout-upload>i { font-size:23px; color:#7c3aed }
+.payout-upload>span { min-width:0; flex:1 }
+.payout-upload strong { display:block; color:#493467; font-size:12px }
+.payout-upload small { display:block; color:#667085; font-size:11px; overflow-wrap:anywhere; margin-top:3px }
+.payout-upload em { flex-shrink:0; font-style:normal; border:1px solid #e2d6f4; border-radius:7px; background:#fff; padding:6px 9px; color:#6d28d9; font-size:11px; font-weight:700 }
+.payout-file-input:focus + .payout-upload { outline:2px solid #7c3aed; outline-offset:2px }
+.pds-modal .modal-footer { flex-shrink:0; display:flex; flex-wrap:nowrap; gap:9px; padding:14px 22px; border-top:1px solid #edf0f5; background:#fff; border-radius:0 }
+.pds-modal .modal-footer>* { margin:0 }
+.payout-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:1px solid #dce0e8; border-radius:10px; padding:10px 17px; color:#475467; font-family:inherit; font-size:12px; font-weight:700; line-height:1.5; background:#fff; cursor:pointer }
+.payout-button:hover { background:#f8fafc }
+.payout-button.primary { color:#fff; border-color:#6d28d9; background:#6d28d9; box-shadow:0 3px 8px rgba(109,40,217,.15) }
+.payout-button.primary:hover { background:#5b21b6 }
+.payout-button:focus-visible { outline:3px solid #c4b5fd; outline-offset:2px }
+.payout-button:disabled { opacity:.65; cursor:wait }
 
 /* ── Form Elements ── */
 .pds-field { margin-bottom:1.25rem }
@@ -163,9 +210,22 @@
 }
 @media (max-width:575.98px) {
     .pds-modal .modal-dialog.modal-fullscreen-sm-down { width:100%; max-width:none; height:100%; margin:0 }
-    .pds-modal .modal-content { border-radius:0; min-height:100% }
-    .pds-modal .modal-header, .pds-modal .modal-footer { border-radius:0 }
-    .pds-modal .modal-body { padding:1rem; overflow-y:auto }
+    .pds-modal .modal-content { border-radius:0; height:100dvh; max-height:100dvh; min-height:0 }
+    .pds-modal [data-payout-form] { height:100%; max-height:100%; min-height:0 }
+    .pds-modal .modal-header { padding:15px 16px }
+    .pds-modal .modal-body { padding:16px }
+    .pds-modal .modal-footer { padding:12px 16px }
+    .payout-heading-icon { width:34px; height:34px; border-radius:10px; font-size:15px }
+    .pds-modal .modal-title { font-size:15px }
+    .payout-heading p { font-size:11px }
+    .payout-summary { padding:12px }
+    .payout-amounts { gap:5px }
+    .payout-amounts>div { padding:8px 6px }
+    .payout-amounts small { font-size:9px }
+    .payout-amounts strong { font-size:11px }
+    .payout-fields { grid-template-columns:1fr; gap:0 }
+    .payout-upload em { display:none }
+    .payout-button.primary { flex:1 }
 }
 </style>
 
@@ -599,7 +659,7 @@
 </div>
 
 @if($canDisburse)
-<div class="modal fade pds-modal" id="cairModal{{ $proposal->id }}" tabindex="-1" aria-hidden="true">
+<div class="modal fade pds-modal" id="cairModal{{ $proposal->id }}" tabindex="-1" aria-hidden="true" aria-labelledby="payoutModalTitle">
     <div class="modal-dialog modal-dialog-centered modal-lg modal-fullscreen-sm-down">
         <div class="modal-content">
             <form action="{{ route('admin.pencairan.store') }}" method="POST" enctype="multipart/form-data" data-payout-form>
@@ -608,49 +668,55 @@
                 <input type="hidden" name="proposal_id" value="{{ $proposal->id }}">
                 <input type="hidden" name="rekening_id" value="{{ $sourceAccount->id }}">
                 <div class="modal-header">
-                    <h5 class="modal-title">Pencairan tahap {{ $proposal->pencairan->count() + 1 }}</h5>
+                    <div class="payout-heading"><span class="payout-heading-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="7" width="18" height="14" rx="2"></rect><path d="M3 9V5a2 2 0 0 1 2-2h13v4M16 12h5v5h-5a2.5 2.5 0 0 1 0-5Z"></path></svg></span><div><h5 class="modal-title" id="payoutModalTitle">Pencairan tahap {{ $proposal->pencairan->count() + 1 }}</h5><p>Catat dana yang dicairkan pada tahap ini.</p></div></div>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Tutup"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="pds-disb-info">
-                        <strong>{{ $proposal->judul }}</strong><br>
-                        Pemohon: {{ $proposal->user?->name ?? '—' }}<br>
-                        Departemen: {{ $proposal->departemen->nama_departemen }} · Grup: {{ $proposal->departemen->grup?->nama_grup ?? '—' }}<br>
-                        Anggaran disetujui: {{ $rupiah(\App\Services\DepartmentBudgetService::cents($proposal->total_anggaran)) }}<br>
-                        Sudah dicairkan: {{ $rupiah($paidCents) }}<br>
-                        Belum dicairkan: {{ $rupiah($remainingCents) }}
+                    <section class="payout-summary" aria-label="Ringkasan proposal">
+                        <h6>{{ $proposal->judul }}</h6>
+                        <div class="payout-meta">Pemohon: {{ $proposal->user?->name ?? '—' }}<br>{{ $proposal->departemen->nama_departemen }} · Grup {{ $proposal->departemen->grup?->nama_grup ?? '—' }}</div>
+                        <div class="payout-amounts">
+                            <div><small>Anggaran disetujui</small><strong>{{ $rupiah(\App\Services\DepartmentBudgetService::cents($proposal->total_anggaran)) }}</strong></div>
+                            <div><small>Sudah dicairkan</small><strong>{{ $rupiah($paidCents) }}</strong></div>
+                            <div class="payout-remaining"><small>Belum dicairkan</small><strong>{{ $rupiah($remainingCents) }}</strong></div>
+                        </div>
+                    </section>
+                    <section class="payout-source" aria-labelledby="labelRekeningSumber">
+                        <div class="payout-source-heading"><label id="labelRekeningSumber">Rekening sumber grup · {{ $year }}</label><span class="payout-auto">Otomatis</span></div>
+                        <div class="payout-source-name" id="rekeningSumber">{{ $sourceAccount->bank }} — {{ $sourceAccount->nama_rekening }}</div>
+                        <p>Saldo bersama grup: {{ $rupiah(\App\Services\DepartmentBudgetService::cents($sourceAccount->saldo)) }}. Pencairan tetap mengikuti batas budget departemen.</p>
+                    </section>
+                    <div class="payout-fields">
+                        <div class="pds-field">
+                            <label for="nominalTahap">Nominal tahap ini <span aria-hidden="true" style="color:#dc2626">*</span></label>
+                            <div class="payout-currency"><span aria-hidden="true">Rp</span><input class="pds-input" id="nominalTahap" type="number" name="jumlah_dana" min="0.01" step="0.01" max="{{ \App\Services\DepartmentBudgetService::amount($maximumCents) }}" value="{{ (string) old('proposal_id') === (string) $proposal->id ? old('jumlah_dana') : '' }}" placeholder="Contoh: 1000000" aria-describedby="payoutLimit" required></div>
+                            <div class="pds-input-hint" id="payoutLimit">Maksimal <span class="payout-limit">{{ $rupiah($maximumCents) }}</span>. Tanpa pemisah ribuan.</div>
+                        </div>
+                        <div class="pds-field">
+                            <label for="metodeTahap">Metode pencairan <span aria-hidden="true" style="color:#dc2626">*</span></label>
+                            <select class="pds-select" name="metode" id="metodeTahap" required>
+                                <option value="">Pilih metode</option>
+                                <option value="cash" @selected(old('metode') === 'cash')>Tunai</option>
+                                <option value="transfer" @selected(old('metode') === 'transfer')>Transfer bank</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="pds-field">
-                        <label id="labelRekeningSumber">Rekening sumber grup · Tahun {{ $year }}</label>
-                        <div class="pds-input" id="rekeningSumber" aria-labelledby="labelRekeningSumber" style="height:auto;white-space:normal;overflow-wrap:anywhere">{{ $sourceAccount->bank }} — {{ $sourceAccount->nama_rekening }}</div>
-                        <div class="pds-input-hint">Otomatis mengikuti pendanaan grup dan tahun proposal. Saldo rekening {{ $rupiah(\App\Services\DepartmentBudgetService::cents($sourceAccount->saldo)) }} adalah saldo bersama grup, bukan seluruhnya milik departemen ini.</div>
-                    </div>
-                    <div class="pds-field">
-                        <label for="nominalTahap">Nominal pencairan tahap ini (Rp)</label>
-                        <input class="pds-input" style="max-width:320px;text-align:left" id="nominalTahap" type="number" name="jumlah_dana" min="0.01" step="0.01" max="{{ \App\Services\DepartmentBudgetService::amount($maximumCents) }}" value="{{ (string) old('proposal_id') === (string) $proposal->id ? old('jumlah_dana') : '' }}" placeholder="Contoh: 1000000" required>
-                        <div class="pds-input-hint">Maksimal tahap ini: {{ $rupiah($maximumCents) }}, sesuai sisa anggaran, budget departemen, dan saldo rekening. Boleh mencairkan sebagian lalu melanjutkan tahap berikutnya. Ketik angka tanpa pemisah ribuan.</div>
-                    </div>
-                    <div class="pds-field">
-                        <label for="metodeTahap">Metode pencairan</label>
-                        <select class="pds-select" name="metode" id="metodeTahap" required>
-                            <option value="">— Pilih metode —</option>
-                            <option value="cash" @selected(old('metode') === 'cash')>Tunai</option>
-                            <option value="transfer" @selected(old('metode') === 'transfer')>Transfer bank</option>
-                        </select>
-                    </div>
-                    <div class="pds-field">
-                        <label for="catatanTahap">Catatan pencairan (wajib)</label>
-                        <textarea class="pds-textarea" name="catatan" id="catatanTahap" maxlength="500" rows="2" placeholder="Contoh: Tahap 1, uang muka pembelian mini PC" required>{{ old('catatan') }}</textarea>
+                        <label for="catatanTahap">Catatan pencairan <span aria-hidden="true" style="color:#dc2626">*</span></label>
+                        <textarea class="pds-textarea" name="catatan" id="catatanTahap" maxlength="500" rows="2" placeholder="Contoh: Uang muka pembelian mini PC" required>{{ old('catatan') }}</textarea>
                     </div>
                     <div class="pds-field" data-transfer-proof hidden>
-                        <label for="buktiTahap">Bukti transfer (wajib untuk transfer bank)</label>
-                        <input type="file" name="bukti_transfer" id="buktiTahap" accept=".pdf,.jpg,.jpeg,.png">
-                        <div class="pds-input-hint">PDF, JPG, atau PNG; maksimal 2 MB.</div>
+                        <label>Bukti transfer <span aria-hidden="true" style="color:#dc2626">*</span></label>
+                        <div class="payout-upload-wrap">
+                            <input class="payout-file-input" type="file" name="bukti_transfer" id="buktiTahap" accept=".pdf,.jpg,.jpeg,.png">
+                            <label for="buktiTahap" class="payout-upload"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="1.7" aria-hidden="true"><path d="M12 16V3m-4 4 4-4 4 4M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"></path></svg><span><strong>Pilih bukti transfer</strong><small data-file-name aria-live="polite">PDF, JPG, atau PNG · Maksimal 2 MB</small></span><em>Pilih file</em></label>
+                        </div>
                     </div>
+                    <p class="payout-tip"><i class="fas fa-info-circle" aria-hidden="true"></i> Boleh dicairkan sebagian. Sisa anggaran dapat dilanjutkan pada tahap berikutnya.</p>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="pds-btn" data-bs-dismiss="modal">Batal</button>
-                    <button type="submit" class="pds-btn-cair">Simpan pencairan tahap ini</button>
+                    <button type="button" class="payout-button" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="payout-button primary"><i class="fas fa-check" aria-hidden="true"></i> Simpan pencairan</button>
                 </div>
             </form>
         </div>
@@ -668,6 +734,9 @@ document.addEventListener('DOMContentLoaded', function () {
         proof.required = transfer;
         proof.disabled = !transfer;
     }
+    proof.addEventListener('change', function () {
+        form.querySelector('[data-file-name]').textContent = proof.files[0]?.name || 'PDF, JPG, atau PNG · Maksimal 2 MB';
+    });
     method.addEventListener('change', updateProof);
     updateProof();
     form.addEventListener('submit', function (event) {
