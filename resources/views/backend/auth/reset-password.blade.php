@@ -249,7 +249,7 @@
         <div class="form-group">
           <label class="form-label" for="reset-otp">Kode OTP WhatsApp</label>
           <div class="input-with-icon"><i class="bi bi-shield-lock"></i><input id="reset-otp" type="text" name="otp" class="form-control" placeholder="6 digit kode OTP" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" pattern="[0-9]{6}" required></div>
-          <p style="font-size:12px;color:#64748b;line-height:1.6;margin-top:8px">Berlaku 10 menit dan hanya sekali pakai. Jika meminta ulang, gunakan kode dari permintaan terbaru.</p>
+          <p style="font-size:12px;color:#64748b;line-height:1.6;margin-top:8px">Berlaku 10 menit dan hanya dapat digunakan sekali saja. Jika meminta ulang, gunakan kode dari permintaan terbaru.</p>
         </div>
 
         <div class="form-group">
