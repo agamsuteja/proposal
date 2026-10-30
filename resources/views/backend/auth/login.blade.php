@@ -124,7 +124,8 @@
       position: relative;
     }
 
-    .input-with-icon i {
+    /* PERBAIKAN: Menggunakan > agar hanya menargetkan icon kiri (email & lock) */
+    .input-with-icon > i {
       position: absolute;
       left: 16px;
       top: 50%;
@@ -272,6 +273,41 @@
         height: 40px;
       }
     }
+
+    /* Toggle show/hide password */
+    .toggle-password {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      padding: 6px 8px;
+      cursor: pointer;
+      color: #64748b;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: color 0.2s ease, background 0.2s ease;
+      z-index: 10;
+    }
+
+    .toggle-password:hover {
+      color: #af1ebd;
+      background: rgba(175, 30, 189, 0.08);
+    }
+
+    .toggle-password:focus {
+      outline: none;
+      color: #af1ebd;
+    }
+
+    .input-with-icon input[type="password"],
+    .input-with-icon input[type="text"] {
+      padding-right: 48px;
+    }
   </style>
 </head>
 
@@ -318,7 +354,10 @@
           <label>Password</label>
           <div class="input-with-icon">
             <i class="bi bi-lock"></i>
-            <input type="password" name="password" placeholder="Masukkan password Anda" required>
+            <input type="password" name="password" id="password" placeholder="Masukkan password Anda" required>
+            <button type="button" class="toggle-password" id="togglePassword" aria-label="Tampilkan password">
+              <i class="bi bi-eye" id="toggleIcon"></i>
+            </button>
           </div>
         </div>
 
@@ -336,6 +375,24 @@
     </div>
   </div>
 </div>
+
+<script>
+  const togglePassword = document.getElementById('togglePassword');
+  const passwordInput  = document.getElementById('password');
+  const toggleIcon     = document.getElementById('toggleIcon');
+
+  togglePassword.addEventListener('click', function () {
+    const isHidden = passwordInput.type === 'password';
+    passwordInput.type = isHidden ? 'text' : 'password';
+    toggleIcon.classList.toggle('bi-eye');
+    toggleIcon.classList.toggle('bi-eye-slash');
+    togglePassword.setAttribute(
+      'aria-label',
+      isHidden ? 'Sembunyikan password' : 'Tampilkan password'
+    );
+    passwordInput.focus();
+  });
+</script>
 
 </body>
 </html>
