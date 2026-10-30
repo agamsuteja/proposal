@@ -45,7 +45,7 @@
     </div>
 
     @include('backend.budget.partials.management')
-    <div class="budget-actions mb-3"><a class="budget-button secondary" href="{{ route('admin.budget.export',['tahun'=>$year]) }}"><i class="bi bi-download"></i>Ekspor budget & realisasi</a></div>
+    <div class="budget-actions mb-3"><a class="budget-button secondary" href="{{ route('admin.budget.export',['tahun'=>$year]) }}"><i class="bi bi-download"></i>Ekspor budget & realisasi</a><a class="budget-button secondary" href="{{ route('admin.budget.requests.pdf',['tahun'=>$year]) }}"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i>Ekspor tambahan budget PDF</a></div>
     @if(!$isRequestPage)
         @forelse($departments->groupBy('grup_id') as $groupId => $groupDepartments)
             <section class="budget-card" aria-labelledby="group-{{ $groupId }}">

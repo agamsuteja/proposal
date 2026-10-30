@@ -11,6 +11,7 @@ use App\Services\DepartmentBudgetService;
 use App\Services\FonnteService;
 use App\Services\GroupFundingService;
 use App\Services\NotificationService;
+use App\Services\WaTemplate;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Artisan;
@@ -79,7 +80,7 @@ Artisan::command('workflow:remind', function () {
         $users = $next ? collect([$next->approver]) : User::where('role', 'keuangan')->where('is_active', 1)->get();
         foreach ($users as $user) {
             if ($user && $user->is_active) {
-                app(NotificationService::class)->queue($user->nohp, 'Pengingat: tambahan budget #'.$request->id.' masih menunggu tindak lanjut.', 'Pengingat tambahan budget', $user->id, 'budget-reminder-'.$request->id.'-'.$user->id.'-'.now()->format('Ymd'));
+                app(NotificationService::class)->queue($user->nohp, WaTemplate::tambahanBudgetMenunggu($request, $user->name, $next?->tahap, true), 'Pengingat tambahan budget', $user->id, 'budget-reminder-'.$request->id.'-'.$user->id.'-'.now()->format('Ymd'));
                 $count++;
             }
         }

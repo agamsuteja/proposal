@@ -14,6 +14,7 @@ use App\Models\Rekening;
 use App\Models\User;
 use App\Services\DepartmentBudgetService;
 use App\Services\GroupFundingService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 
 class BudgetController extends Controller
@@ -29,6 +30,12 @@ class BudgetController extends Controller
         }
 
         return $query->whereKey($user->departemen_id ?? 0);
+    }
+
+    private function requestsQuery(Request $request, int $year)
+    {
+        return BudgetRequest::with(['departemen.grup', 'user', 'approvals.approver', 'transfers.sumber', 'transfers.user', 'versions.user', 'reversal.user'])
+            ->whereIn('departemen_id', $this->departments($request->user())->select('id'))->where('tahun', $year)->latest();
     }
 
     public function index(Request $request, DepartmentBudgetService $service)
@@ -47,8 +54,7 @@ class BudgetController extends Controller
         $groupTotals = DepartmentBudget::join('departemen', 'departemen.id', '=', 'budget_departemen.departemen_id')
             ->where('tahun', $year)->whereIn('grup_id', $departments->pluck('grup_id'))
             ->selectRaw('grup_id, SUM(jumlah) as total')->groupBy('grup_id')->pluck('total', 'grup_id');
-        $requests = BudgetRequest::with(['departemen.grup', 'user', 'approvals.approver', 'transfers.sumber', 'versions.user', 'reversal.user'])
-            ->whereIn('departemen_id', $departments->pluck('id'))->where('tahun', $year)->latest()->paginate(15)->withQueryString();
+        $requests = $this->requestsQuery($request, $year)->paginate(15)->withQueryString();
         $periodStatus = BudgetPeriod::whereKey($year)->value('status') ?? 'open';
         $approvers = $request->user()->role === 'admin' ? User::where('is_active', 1)->whereIn('role', ['departemen_head', 'group_head', 'gembala'])->orderBy('name')->get() : collect();
 
@@ -195,6 +201,18 @@ class BudgetController extends Controller
         $service->copyYear((int) $data['sumber'], (int) $data['tujuan'], $request->user(), $data['alasan']);
 
         return back()->with('success', 'Alokasi disalin ke tahun tujuan tanpa menimpa data.');
+    }
+
+    public function exportRequestsPdf(Request $request)
+    {
+        $request->validate(['tahun' => 'nullable|integer|min:2000|max:2100']);
+        $year = (int) ($request->tahun ?? now()->year);
+        $requests = $this->requestsQuery($request, $year)->get();
+
+        return Pdf::loadView('backend.budget.requests_pdf', [
+            'requests' => $requests, 'year' => $year, 'printedBy' => $request->user()->name,
+            'printedAt' => now()->timezone('Asia/Jakarta')->format('d/m/Y H:i').' WIB',
+        ])->setPaper('a4')->download('laporan-tambahan-budget-'.$year.'.pdf');
     }
 
     public function export(Request $request, DepartmentBudgetService $service)

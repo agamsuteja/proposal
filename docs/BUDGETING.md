@@ -80,3 +80,11 @@ Alokasi kini wajib didukung rekening sumber dan plafon grup/tahun. Lihat [GROUP_
 ## Deploy tanpa pull manual berulang
 
 Lihat [CPANEL_DEPLOY.md](CPANEL_DEPLOY.md). Setelah satu kali mengambil konfigurasi baru ke server, tombol **Deploy HEAD Commit** menjalankan sinkronisasi `origin/master` dan deployment dalam satu tugas. Commit dari komputer tetap harus di-push ke GitHub terlebih dahulu. Impor SQL manual tetap dilakukan bila rilis memerlukannya.
+
+## Notifikasi tambahan budget dan laporan PDF — 30 Oktober 2026
+
+Pesan kepada MH, GH, gembala dan keuangan memuat nomor pengajuan, nama pemohon, departemen, grup, tahun, nominal dengan dua digit desimal, alasan pengajuan dan tindakan sesuai tahap. Pengingat harian memakai rincian yang sama. Penolakan memberi tahu pemohon tentang peninjau dan catatan revisi. Pesan transfer selesai menyebut seluruh departemen sumber beserta nominalnya dan nama petugas keuangan; transfer ini adalah pemindahan alokasi, bukan pencairan rekening.
+
+Tombol **Ekspor tambahan budget PDF** pada Budget Departemen/Tambahan Budget mengunduh laporan tahun yang dipilih, termasuk seluruh halaman pengajuan dalam lingkup akses pengguna. PDF memuat identitas, alasan, status, persetujuan saat ini beserta catatan, sumber transfer dan petugas, serta informasi pembalikan bila ada. Riwayat persetujuan sebelum revisi tetap tersimpan dalam arsip versi aplikasi; tabel PDF menampilkan alur persetujuan saat ini. Ekspor CSV budget dan realisasi tetap tersedia.
+
+Pembaruan ini tidak memerlukan SQL tambahan atau migrasi. Pesan yang telah dikirim atau tersimpan dalam antrean sebelumnya tidak ditulis ulang; format lengkap berlaku untuk notifikasi yang dibuat setelah kode terbaru di-deploy. Pengujian menggunakan pengirim palsu, tanpa mengirim WhatsApp nyata.

@@ -7,11 +7,13 @@ use App\Models\BudgetRequest;
 use App\Models\Departemen;
 use App\Models\DepartmentBudget;
 use App\Models\Grup;
+use App\Models\NotificationMessage;
 use App\Models\Proposal;
 use App\Models\Rekening;
 use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
 use App\Services\GroupFundingService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -76,6 +78,132 @@ class DepartmentBudgetTest extends TestCase
         foreach ([$this->head, $this->groupHead, $this->pastor] as $user) {
             $this->actingAs($user)->postJson(route('admin.budget.decide', $request->id), ['status' => 'disetujui'])->assertRedirect();
         }
+    }
+
+    private function assertBudgetMessageDetails(string $message, string $amount = 'Rp 700.000,50', string $reason = 'Kebutuhan tambahan IT'): void
+    {
+        foreach (['Pemohon: '.$this->employee->name, 'Departemen: IT', 'Grup: Office', 'Tahun budget: 2026',
+            'Tambahan yang diajukan: '.$amount, 'Alasan pengajuan: '.$reason] as $detail) {
+            $this->assertStringContainsString($detail, $message);
+        }
+    }
+
+    public function test_budget_notifications_include_request_details_and_instructions_for_each_stage(): void
+    {
+        $request = $this->requestBudget('700000.50');
+        foreach ([$this->head, $this->groupHead, $this->pastor, $this->finance] as $i => $recipient) {
+            $notice = NotificationMessage::latest('id')->firstOrFail();
+            $this->assertSame($recipient->id, (int) $notice->user_id);
+            $this->assertBudgetMessageDetails($notice->message);
+            $this->assertStringContainsString('tambahan budget #'.$request->id, $notice->message);
+            $this->assertStringContainsString(['Kepala Departemen (MH)', 'Kepala Grup (GH)', 'persetujuan Gembala', 'menunggu transfer alokasi oleh Keuangan'][$i], $notice->message);
+            $this->assertStringContainsString($i < 3 ? 'memberikan keputusan' : 'satu atau beberapa departemen sumber dalam grup yang sama', $notice->message);
+            if ($i < 3) {
+                $this->actingAs($recipient)->postJson(route('admin.budget.decide', $request->id), ['status' => 'disetujui'])->assertRedirect();
+            }
+        }
+        $this->artisan('workflow:remind')->assertExitCode(0);
+        $notice = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame($this->finance->id, (int) $notice->user_id);
+        $this->assertBudgetMessageDetails($notice->message);
+        $this->assertStringContainsString('Pengingat pengajuan', $notice->message);
+        $this->assertStringContainsString('bukan pencairan uang dari rekening', $notice->message);
+    }
+
+    public function test_budget_transfer_message_lists_all_source_departments_and_finance_actor(): void
+    {
+        $third = Departemen::create(['nama_departemen' => 'Administrasi', 'grup_id' => $this->it->grup_id]);
+        $this->budgets->setBudget($third->id, 2026, '1000000');
+        $request = $this->requestBudget('700000.50');
+        $this->approve($request);
+        $this->actingAs($this->finance)->postJson(route('admin.budget.fund', $request->id), ['sumber' => [
+            ['departemen_id' => $this->data->id, 'jumlah' => '300000.25'],
+            ['departemen_id' => $third->id, 'jumlah' => '400000.25'],
+        ]])->assertRedirect();
+        $notice = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame($this->employee->id, (int) $notice->user_id);
+        $this->assertBudgetMessageDetails($notice->message);
+        $this->assertStringContainsString('- Data Manager: Rp 300.000,25', $notice->message);
+        $this->assertStringContainsString('- Administrasi: Rp 400.000,25', $notice->message);
+        $this->assertStringContainsString('Diproses oleh Keuangan: '.$this->finance->name, $notice->message);
+        $this->assertStringContainsString('bukan pencairan uang dari rekening', $notice->message);
+        $this->assertSame(570000050, Budgets::cents(DepartmentBudget::where('departemen_id', $this->it->id)->value('jumlah')));
+    }
+
+    public function test_budget_rejection_and_revised_reminders_use_current_reason_and_owner_recipient(): void
+    {
+        $request = $this->requestBudget('700000.50');
+        $this->actingAs($this->head)->postJson(route('admin.budget.decide', $request->id), ['status' => 'ditolak', 'catatan' => 'Lengkapi rincian konsumsi'])->assertRedirect();
+        $notice = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame($this->employee->id, (int) $notice->user_id);
+        $this->assertBudgetMessageDetails($notice->message);
+        $this->assertStringContainsString('Ditolak oleh: '.$this->head->name.' — Kepala Departemen (MH)', $notice->message);
+        $this->assertStringContainsString('Catatan penolakan: Lengkapi rincian konsumsi', $notice->message);
+        $this->assertStringContainsString('perbaiki pengajuan', $notice->message);
+        $this->assertStringNotContainsString('memberikan keputusan', $notice->message);
+        $this->actingAs($this->employee)->postJson(route('admin.budget.revise', $request->id), ['jumlah' => '800000.25',
+            'alasan' => "Tambahan konsumsi\nuntuk peserta https://example.test/detail"])->assertRedirect();
+        $notice = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame($this->head->id, (int) $notice->user_id);
+        $this->assertBudgetMessageDetails($notice->message, 'Rp 800.000,25', 'Tambahan konsumsi untuk peserta [tautan dihapus]');
+        $this->assertStringNotContainsString('Kebutuhan tambahan IT', $notice->message);
+        $this->artisan('workflow:remind')->assertExitCode(0);
+        $notice = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertBudgetMessageDetails($notice->message, 'Rp 800.000,25', 'Tambahan konsumsi untuk peserta [tautan dihapus]');
+        $this->assertStringContainsString('Pengingat pengajuan', $notice->message);
+    }
+
+    public function test_budget_request_pdf_download_renders_approvals_sources_and_empty_year(): void
+    {
+        $request = $this->requestBudget('700000.50');
+        $this->approve($request);
+        $this->actingAs($this->finance)->postJson(route('admin.budget.fund', $request->id), ['sumber' => [
+            ['departemen_id' => $this->data->id, 'jumlah' => '700000.50'],
+        ]])->assertRedirect();
+        $this->actingAs($this->employee)->get(route('admin.budget.requests', ['tahun' => 2026]))
+            ->assertOk()->assertSee(route('admin.budget.requests.pdf', ['tahun' => 2026]), false);
+        $response = $this->get(route('admin.budget.requests.pdf', ['tahun' => 2026]));
+        $response->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+        $this->assertStringContainsString('laporan-tambahan-budget-2026.pdf', $response->headers->get('content-disposition'));
+        $html = view('backend.budget.requests_pdf', ['requests' => collect([$request->fresh()->load(['user', 'departemen.grup', 'approvals.approver', 'transfers.sumber', 'transfers.user', 'reversal'])]),
+            'year' => 2026, 'printedBy' => $this->employee->name, 'printedAt' => '30/10/2026 12:00 WIB'])->render();
+        foreach (['Kebutuhan tambahan IT', 'Data Manager', 'Rp 700.000,50', 'Sudah ditransfer', 'Kepala Departemen (MH)', 'Kepala Grup (GH)', 'Gembala', 'keuangan'] as $detail) {
+            $this->assertStringContainsString($detail, $html);
+        }
+        $this->get(route('admin.budget.requests.pdf', ['tahun' => 2027]))->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->getJson(route('admin.budget.requests.pdf', ['tahun' => 'invalid']))->assertUnprocessable();
+    }
+
+    public function test_budget_request_pdf_uses_role_scope_year_and_all_pages(): void
+    {
+        for ($i = 0; $i < 16; $i++) {
+            BudgetRequest::create(['user_id' => $this->employee->id, 'departemen_id' => $this->it->id, 'tahun' => 2026,
+                'jumlah' => '100', 'alasan' => 'Audit scope '.$i, 'status' => 'pending']);
+        }
+        BudgetRequest::create(['user_id' => $this->employee->id, 'departemen_id' => $this->data->id, 'tahun' => 2026,
+            'jumlah' => '100', 'alasan' => 'Departemen lain dalam grup', 'status' => 'pending']);
+        $otherGroup = Grup::create(['nama_grup' => 'Community']);
+        $otherDepartment = Departemen::create(['grup_id' => $otherGroup->id, 'nama_departemen' => 'KIDS']);
+        BudgetRequest::create(['user_id' => $this->employee->id, 'departemen_id' => $otherDepartment->id, 'tahun' => 2026,
+            'jumlah' => '100', 'alasan' => 'Grup lain', 'status' => 'pending']);
+        BudgetRequest::create(['user_id' => $this->employee->id, 'departemen_id' => $this->it->id, 'tahun' => 2027,
+            'jumlah' => '100', 'alasan' => 'Tahun lain', 'status' => 'pending']);
+        $admin = $this->user('admin', $this->it);
+        foreach ([[$this->employee, 16], [$this->head, 16], [$this->groupHead, 17], [$this->pastor, 18], [$this->finance, 18], [$admin, 18]] as [$actor, $expected]) {
+            $pdf = \Mockery::mock(\Barryvdh\DomPDF\PDF::class);
+            Pdf::shouldReceive('loadView')->once()->with('backend.budget.requests_pdf', \Mockery::on(function ($data) use ($expected, $actor) {
+                $this->assertCount($expected, $data['requests']);
+                $this->assertSame([2026], $data['requests']->pluck('tahun')->unique()->values()->all());
+                $this->assertSame($actor->name, $data['printedBy']);
+                return true;
+            }))->andReturn($pdf);
+            $pdf->shouldReceive('setPaper')->once()->with('a4')->andReturnSelf();
+            $pdf->shouldReceive('download')->once()->with('laporan-tambahan-budget-2026.pdf')->andReturn(response('Scoped PDF'));
+            $this->actingAs($actor)->get(route('admin.budget.requests.pdf', ['tahun' => 2026]))->assertOk();
+        }
+        auth()->logout();
+        $this->getJson(route('admin.budget.requests.pdf', ['tahun' => 2026]))->assertUnauthorized();
     }
 
     public function test_group_total_is_ten_million_and_transfer_preserves_it(): void

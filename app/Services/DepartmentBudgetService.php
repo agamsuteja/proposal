@@ -156,7 +156,7 @@ class DepartmentBudgetService
                 $request->update(['status' => 'disetujui']);
             }
             if ($status === 'ditolak') {
-                app(NotificationService::class)->queue($request->user->nohp, 'Pengajuan tambahan budget #'.$request->id.' ditolak. Silakan periksa catatan dan revisi.', 'Tambahan budget ditolak', $request->user_id);
+                app(NotificationService::class)->queue($request->user->nohp, WaTemplate::tambahanBudgetDitolak($request, $user->name, $approval->tahap, $note), 'Tambahan budget ditolak', $request->user_id);
             } else {
                 $this->notifyNext($request);
             }
@@ -209,7 +209,7 @@ class DepartmentBudgetService
             }
             $targetBudget->update(['jumlah' => self::amount($newTotal)]);
             $request->update(['status' => 'ditransfer', 'funded_at' => now()]);
-            app(NotificationService::class)->queue($request->user->nohp, 'Tambahan budget #'.$request->id.' telah ditransfer ke departemen Anda.', 'Transfer budget selesai', $request->user_id, 'budget-funded-'.$request->id);
+            app(NotificationService::class)->queue($request->user->nohp, WaTemplate::tambahanBudgetDitransfer($request, $user->name), 'Transfer budget selesai', $request->user_id, 'budget-funded-'.$request->id);
         }, 3);
     }
 
@@ -218,7 +218,7 @@ class DepartmentBudgetService
         $next = $request->approvals()->where('status', 'pending')->first();
         $recipients = $next ? collect([$next->approver]) : User::where('role', 'keuangan')->where('is_active', 1)->get();
         foreach ($recipients as $recipient) {
-            app(NotificationService::class)->queue($recipient->nohp, 'Pengajuan tambahan budget #'.$request->id.' sebesar Rp '.number_format($request->jumlah, 2, ',', '.').' menunggu '.($next ? 'persetujuan Anda.' : 'transfer keuangan.'), 'Tambahan budget', $recipient->id, 'budget-next-'.$request->id.'-'.($next?->id ?? 'finance').'-'.$recipient->id);
+            app(NotificationService::class)->queue($recipient->nohp, WaTemplate::tambahanBudgetMenunggu($request, $recipient->name, $next?->tahap), 'Tambahan budget', $recipient->id, 'budget-next-'.$request->id.'-'.($next?->id ?? 'finance').'-'.$recipient->id);
         }
     }
 

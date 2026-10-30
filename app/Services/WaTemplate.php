@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\BudgetRequest;
+
 /**
  * Template pesan WhatsApp yang dibuat seaman mungkin dari deteksi spam:
  *  - teks polos: tanpa emoji, tanpa HURUF KAPITAL penuh, tanpa format tebal/miring
@@ -178,6 +180,78 @@ class WaTemplate
             'Dikirim oleh: ' . self::bersih($pengirim, 60),
             'Catatan: ' . ($catatan !== '' ? $catatan : '-'),
         ], 'Silakan buka aplikasi ' . self::APLIKASI . ' untuk memverifikasi.');
+    }
+
+    // ===================================================================
+    // TAMBAHAN BUDGET
+    // ===================================================================
+
+    public static function tambahanBudgetMenunggu(BudgetRequest $request, string $nama, ?string $tahap, bool $pengingat = false): string
+    {
+        $status = match ($tahap) {
+            'departemen_head' => 'Menunggu persetujuan Kepala Departemen (MH).',
+            'group_head' => 'Telah disetujui Kepala Departemen (MH); menunggu persetujuan Kepala Grup (GH).',
+            'gembala' => 'Telah disetujui Kepala Departemen (MH) dan Kepala Grup (GH); menunggu persetujuan Gembala.',
+            default => 'Telah disetujui MH, GH, dan Gembala; menunggu transfer alokasi oleh Keuangan.',
+        };
+
+        return self::notif($nama, array_merge([
+            ($pengingat ? 'Pengingat pengajuan' : 'Pengajuan').' tambahan budget #'.$request->id,
+            '',
+        ], self::rincianTambahanBudget($request), ['', 'Status: '.$status]), $tahap
+            ? 'Silakan buka menu Tambahan Budget di aplikasi ESC Proposal untuk meninjau alasan dan memberikan keputusan.'
+            : 'Silakan buka menu Tambahan Budget di aplikasi ESC Proposal. Pilih satu atau beberapa departemen sumber dalam grup yang sama, sesuai budget tersedia, lalu proses transfer alokasi. Ini bukan pencairan uang dari rekening.');
+    }
+
+    public static function tambahanBudgetDitolak(BudgetRequest $request, string $peninjau, string $tahap, ?string $catatan): string
+    {
+        $peran = match ($tahap) {
+            'departemen_head' => 'Kepala Departemen (MH)',
+            'group_head' => 'Kepala Grup (GH)',
+            default => 'Gembala',
+        };
+
+        return self::notif($request->user->name, array_merge([
+            'Pengajuan tambahan budget #'.$request->id.' dikembalikan untuk direvisi.', '',
+        ], self::rincianTambahanBudget($request), [
+            '', 'Ditolak oleh: '.self::bersih($peninjau, 100).' — '.$peran,
+            'Catatan penolakan: '.(self::bersih($catatan, 1000) ?: 'Tidak ada catatan.'),
+        ]), 'Silakan buka menu Tambahan Budget di aplikasi ESC Proposal, perbaiki pengajuan sesuai catatan, lalu ajukan kembali untuk persetujuan ulang.');
+    }
+
+    public static function tambahanBudgetDitransfer(BudgetRequest $request, string $keuangan): string
+    {
+        $request->loadMissing('transfers.sumber');
+        $sumber = ['Sumber alokasi:'];
+        foreach ($request->transfers as $transfer) {
+            $sumber[] = '- '.self::bersih($transfer->sumber?->nama_departemen ?? '-', 150).': '.self::budgetRp($transfer->jumlah);
+        }
+
+        return self::notif($request->user->name, array_merge([
+            'Tambahan budget #'.$request->id.' telah ditransfer ke alokasi departemen Anda.', '',
+        ], self::rincianTambahanBudget($request), ['', ...$sumber, 'Diproses oleh Keuangan: '.self::bersih($keuangan, 100)]),
+            'Silakan periksa menu Budget Departemen di aplikasi ESC Proposal. Transfer ini menambah alokasi budget departemen; bukan pencairan uang dari rekening.');
+    }
+
+    private static function rincianTambahanBudget(BudgetRequest $request): array
+    {
+        $request->loadMissing(['user', 'departemen.grup']);
+
+        return [
+            'Pemohon: '.self::bersih($request->user?->name ?? '-', 100),
+            'Departemen: '.self::bersih($request->departemen?->nama_departemen ?? '-', 150),
+            'Grup: '.self::bersih($request->departemen?->grup?->nama_grup ?? '-', 150),
+            'Tahun budget: '.$request->tahun,
+            'Tambahan yang diajukan: '.self::budgetRp($request->jumlah),
+            'Alasan pengajuan: '.self::bersih($request->alasan, 5000),
+        ];
+    }
+
+    private static function budgetRp($amount): string
+    {
+        $cents = DepartmentBudgetService::cents($amount);
+
+        return 'Rp '.number_format(intdiv($cents, 100), 0, ',', '.').','.sprintf('%02d', $cents % 100);
     }
 
     // ===================================================================

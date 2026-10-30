@@ -20,6 +20,11 @@ class BudgetTransfer extends Model
         return $this->belongsTo(Departemen::class, 'sumber_id');
     }
 
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
     public function tujuan()
     {
         return $this->belongsTo(Departemen::class, 'tujuan_id');

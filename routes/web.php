@@ -84,6 +84,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/budget', [BudgetController::class, 'index'])->name('budget.index');
         Route::get('/budget/pengajuan', [BudgetController::class, 'index'])->name('budget.requests');
         Route::get('/budget/export', [BudgetController::class, 'export'])->name('budget.export');
+        Route::get('/budget/pengajuan/export/pdf', [BudgetController::class, 'exportRequestsPdf'])->name('budget.requests.pdf');
         Route::post('/budget/pendanaan', [BudgetController::class, 'saveFunding'])->middleware('role:keuangan')->name('budget.funding');
         Route::post('/budget/bagi-rata', [BudgetController::class, 'distribute'])->middleware('role:keuangan')->name('budget.distribute');
         Route::put('/budget', [BudgetController::class, 'save'])->middleware('role:keuangan')->name('budget.save');
