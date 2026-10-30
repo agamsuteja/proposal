@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -204,6 +204,8 @@
         font-size: 15px;
       }
     }
+    html { display:block; min-height:100%; height:auto; padding:0; }
+    body { width:100%; min-height:100vh; height:auto; padding:24px 16px; }
   </style>
 </head>
 
@@ -211,7 +213,7 @@
   <div class="auth-card">
     <div class="card-header">
       <h1>Lupa Password?</h1>
-      <p>Masukkan email dan nomor WhatsApp Anda untuk menerima link reset password</p>
+      <p>Masukkan email dan nomor WhatsApp terdaftar untuk menerima kode OTP reset password.</p>
     </div>
     
     <div class="card-body">
@@ -229,7 +231,7 @@
         </div>
       @endif
 
-      @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+      @if($errors->any())<div class="alert alert-error" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
 <form action="{{ route('admin.forgot.send') }}" method="POST">
         @csrf
 
@@ -237,7 +239,7 @@
           <label class="form-label">Email</label>
           <div class="input-with-icon">
             <i class="bi bi-envelope"></i>
-            <input type="email" name="email" class="form-control" placeholder="Masukkan email yang terdaftar" required>
+            <input type="email" name="email" autocomplete="email" value="{{ old('email') }}" class="form-control" placeholder="Masukkan email yang terdaftar" required>
           </div>
         </div>
 
@@ -245,14 +247,16 @@
           <label class="form-label">Nomor WhatsApp</label>
           <div class="input-with-icon">
             <i class="bi bi-whatsapp"></i>
-            <input type="text" name="nohp" class="form-control" placeholder="Masukkan nomor WhatsApp aktif" required>
+            <input type="tel" name="nohp" autocomplete="tel" value="{{ old('nohp') }}" maxlength="20" class="form-control" placeholder="Masukkan nomor WhatsApp aktif" required>
           </div>
         </div>
 
         <button class="btn-primary" type="submit">
-          Kirim Link Reset Password
+          Kirim Kode OTP
         </button>
       </form>
+
+      <p style="font-size:13px;color:#64748b;line-height:1.6;margin-top:16px">Kode berisi 6 digit, berlaku 10 menit, dan hanya dapat digunakan sekali. Jangan bagikan kode kepada siapa pun.</p>
 
       <a class="back-link" href="{{ route('admin.login') }}">
         <i class="bi bi-arrow-left me-1"></i>Kembali ke Login

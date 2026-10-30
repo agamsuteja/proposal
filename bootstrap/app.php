@@ -19,5 +19,5 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [SecurityHeaders::class, RecordActivity::class]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        $exceptions->dontFlash(['password', 'password_confirmation', 'current_password', 'otp', 'token']);
     })->create();

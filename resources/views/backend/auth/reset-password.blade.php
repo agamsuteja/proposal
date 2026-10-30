@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -181,6 +181,8 @@
         font-size: 15px;
       }
     }
+    html { display:block; min-height:100%; height:auto; padding:0; }
+    body { width:100%; min-height:100vh; height:auto; padding:24px 16px; }
   </style>
 </head>
 
@@ -189,7 +191,7 @@
   <div class="auth-card">
     <div class="card-header">
       <h1>Reset Password</h1>
-      <p>Buat password baru untuk akun Anda</p>
+      <p>Masukkan kode OTP dari WhatsApp dan buat password baru.</p>
     </div>
     
     <div class="card-body">
@@ -200,16 +202,26 @@
         </div>
       @endif
 
+      @if (session('success'))<div class="alert" style="background:#dcfce7;color:#166534;border-color:#22c55e" role="status">{{ session('success') }}</div>@endif
+
       @if($errors->any())<div class="alert alert-danger" role="alert"><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
 <form action="{{ route('admin.reset.submit') }}" method="POST">
         @csrf
-        <input type="hidden" name="token" value="{{ $token }}">
+        <div class="form-group">
+          <label class="form-label" for="reset-email">Email terdaftar</label>
+          <div class="input-with-icon"><i class="bi bi-envelope"></i><input id="reset-email" type="email" name="email" class="form-control" value="{{ $email }}" autocomplete="email" readonly required></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="reset-otp">Kode OTP WhatsApp</label>
+          <div class="input-with-icon"><i class="bi bi-shield-lock"></i><input id="reset-otp" type="text" name="otp" class="form-control" placeholder="6 digit kode OTP" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" pattern="[0-9]{6}" required></div>
+          <p style="font-size:12px;color:#64748b;line-height:1.6;margin-top:8px">Berlaku 10 menit dan hanya sekali pakai. Jika meminta ulang, gunakan kode dari permintaan terbaru.</p>
+        </div>
 
         <div class="form-group">
           <label class="form-label">Password Baru</label>
           <div class="input-with-icon">
             <i class="bi bi-lock"></i>
-            <input type="password" name="password" class="form-control" placeholder="Masukkan password baru" required>
+            <input type="password" name="password" minlength="10" autocomplete="new-password" class="form-control" placeholder="Minimal 10 karakter" required>
           </div>
         </div>
 
@@ -217,12 +229,16 @@
           <label class="form-label">Konfirmasi Password</label>
           <div class="input-with-icon">
             <i class="bi bi-lock-fill"></i>
-            <input type="password" name="password_confirmation" class="form-control" placeholder="Ulangi password baru" required>
+            <input type="password" name="password_confirmation" minlength="10" autocomplete="new-password" class="form-control" placeholder="Ulangi password baru" required>
           </div>
         </div>
 
         <button class="btn-primary" type="submit">Reset Password</button>
       </form>
+      <div style="display:flex;flex-direction:column;gap:12px;text-align:center;margin-top:24px;font-size:14px">
+        <a href="{{ route('admin.forgot.form') }}">Belum menerima kode? Minta kode OTP baru</a>
+        <a href="{{ route('admin.login') }}">Kembali ke Login</a>
+      </div>
     </div>
   </div>
 

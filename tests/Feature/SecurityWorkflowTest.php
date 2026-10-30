@@ -621,4 +621,43 @@ class SecurityWorkflowTest extends TestCase
         $data['tanggal_pengajuan'] = '2027-01-01';
         $this->postJson(route('admin.proposal.store'), $data)->assertUnprocessable()->assertJsonValidationErrors('pendanaan');
     }
+
+    public function test_password_reset_otp_pages_show_code_form_and_reset_without_link_token(): void
+    {
+        $this->get(route('admin.forgot.form'))->assertOk()->assertSee('Kirim Kode OTP')->assertDontSee('Kirim Link Reset Password');
+        $this->post(route('admin.forgot.send'), ['email' => $this->employee->email, 'nohp' => $this->employee->nohp])->assertRedirect(route('admin.reset.form', ['email' => $this->employee->email]));
+        preg_match('/\b([0-9]{6})\b/', end($this->sender->messages), $match);
+        $otp = $match[1];
+        $page = route('admin.reset.form', ['email' => $this->employee->email]);
+        $this->get($page)->assertOk()->assertSee('Kode OTP WhatsApp')->assertSee('name="otp"', false)->assertSee('name="email"', false)->assertDontSee('name="token"', false);
+        $data = ['email' => $this->employee->email, 'otp' => '000000', 'password' => 'New-password-123', 'password_confirmation' => 'New-password-123'];
+        $this->from($page)->post(route('admin.reset.submit'), $data)->assertRedirect($page)->assertSessionHasErrors('otp');
+        $this->assertNull(session('_old_input.otp'));
+        $this->assertNull(session('_old_input.password'));
+        $data['otp'] = $otp;
+        $this->post(route('admin.reset.submit'), $data)->assertRedirect(route('admin.login'));
+        $this->assertTrue(Hash::check('New-password-123', $this->employee->fresh()->password));
+        $this->postJson(route('admin.reset.submit'), $data)->assertUnprocessable();
+    }
+
+    public function test_password_reset_otp_resend_cancels_failed_old_messages_and_expired_code_is_rejected(): void
+    {
+        $this->sender->success = false;
+        $input = ['email' => $this->employee->email, 'nohp' => $this->employee->nohp];
+        $this->post(route('admin.forgot.send'), $input)->assertRedirect();
+        $old = NotificationMessage::latest('id')->firstOrFail();
+        $this->assertSame('failed', $old->status);
+        $this->post(route('admin.forgot.send'), $input)->assertRedirect();
+        $this->assertSame('expired', $old->fresh()->status);
+        $attempts = count($this->sender->messages);
+        $this->assertFalse(app(NotificationService::class)->deliver($old->id));
+        $this->assertCount($attempts, $this->sender->messages);
+        preg_match('/\b([0-9]{6})\b/', end($this->sender->messages), $match);
+        $data = ['email' => $this->employee->email, 'otp' => $match[1], 'password' => 'New-password-123', 'password_confirmation' => 'New-password-123'];
+        $challenge = AuthChallenge::where('user_id', $this->employee->id)->where('purpose', 'password_reset')->firstOrFail();
+        $this->assertTrue(Hash::check($data['otp'], $challenge->otp_hash));
+        $challenge->update(['expires_at' => now()->subSecond()]);
+        $this->postJson(route('admin.reset.submit'), $data)->assertUnprocessable();
+        $this->assertTrue(Hash::check('Audit-safe-password', $this->employee->fresh()->password));
+    }
 }

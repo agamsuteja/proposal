@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AuthChallenge;
 use App\Models\Departemen;
 use App\Models\Grup;
+use App\Models\NotificationMessage;
 use App\Models\User;
 use App\Services\NotificationService;
 use App\Services\WaTemplate;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -169,12 +171,15 @@ class AuthController extends Controller
     {
         $otp = (string) random_int(100000, 999999);
         $expires = now()->addMinutes(10);
-        DB::transaction(function () use ($user, $purpose, $otp, $expires) {
+        $notification = DB::transaction(function () use ($user, $purpose, $otp, $expires) {
             User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $this->expireOtpMessages($user, $purpose);
             AuthChallenge::updateOrCreate(['user_id' => $user->id, 'purpose' => $purpose], ['otp_hash' => Hash::make($otp), 'expires_at' => $expires]);
+            $message = $purpose === 'registration' ? WaTemplate::otpRegistrasi($user->name, $otp) : WaTemplate::otpReset($user->name, $otp);
+
+            return app(NotificationService::class)->queue($user->nohp, $message, 'Kode verifikasi akun', $user->id,
+                'auth-otp-'.$purpose.'-'.$user->id.'-'.Str::uuid(), $expires, true);
         });
-        $message = $purpose === 'registration' ? WaTemplate::otpRegistrasi($user->name, $otp) : WaTemplate::otpReset($user->name, $otp);
-        $notification = app(NotificationService::class)->queue($user->nohp, $message, 'Kode verifikasi akun', $user->id, null, $expires, true);
 
         return $notification->fresh()->status === 'sent';
     }
@@ -186,6 +191,17 @@ class AuthController extends Controller
             $this->invalidOtp();
         }
         $row->delete();
+        $this->expireOtpMessages($user, $purpose);
+    }
+
+    private function expireOtpMessages(User $user, string $purpose): void
+    {
+        // Cancel unsent retries for the previous code; keep other notifications intact.
+        $pending = NotificationMessage::where('user_id', $user->id)->where('dedupe_key', 'like', 'auth-otp-'.$purpose.'-'.$user->id.'-%')
+            ->whereIn('status', ['pending', 'failed'])->lockForUpdate()->get();
+        foreach ($pending as $message) {
+            $message->update(['status' => 'expired', 'expires_at' => now(), 'next_attempt_at' => null]);
+        }
     }
 
     private function invalidOtp(): never

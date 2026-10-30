@@ -26,7 +26,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
     Route::get('/forgot-password', [AuthController::class, 'forgotPasswordForm'])->name('forgot.form');
     Route::post('/forgot-password', [AuthController::class, 'forgotPasswordSend'])->middleware('throttle:otp-send')->name('forgot.send');
-    Route::get('/reset-password/{token?}', [AuthController::class, 'resetPasswordForm'])->name('reset.form');
+    Route::get('/reset-password', [AuthController::class, 'resetPasswordForm'])->name('reset.form');
     Route::post('/reset-password', [AuthController::class, 'resetPasswordSubmit'])->middleware('throttle:otp-verify')->name('reset.submit');
     Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('register.form');
     Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:otp-send')->name('register.submit');
