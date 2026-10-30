@@ -197,7 +197,7 @@
       border: none;
       padding: 6px 8px;
       cursor: pointer;
-      color: #64748b;
+      color:rgb(108, 120, 137);
       font-size: 18px;
       display: flex;
       align-items: center;
