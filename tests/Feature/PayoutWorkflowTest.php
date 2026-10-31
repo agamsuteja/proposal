@@ -6,12 +6,15 @@ use App\Models\BudgetPeriod;
 use App\Models\Departemen;
 use App\Models\GroupFunding;
 use App\Models\Grup;
+use App\Models\NotificationMessage;
+use App\Models\PencairanDana;
 use App\Models\PengembalianDana;
 use App\Models\Proposal;
 use App\Models\Rekening;
 use App\Models\User;
 use App\Services\DepartmentBudgetService as Budgets;
 use App\Services\GroupFundingService;
+use App\Services\WaTemplate;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -58,6 +61,61 @@ class PayoutWorkflowTest extends TestCase
             'jumlah_dana' => $amount, 'metode' => 'cash', 'catatan' => 'Tahap pembelian perangkat'];
     }
 
+    public function test_owner_payout_messages_distinguish_equal_installments_and_include_finance_notes(): void
+    {
+        $p = $this->approved('4000000');
+        $this->actingAs($this->actor('keuangan'));
+        $first = $this->payment($p, '2000000');
+        $first['catatan'] = 'Uang muka pembelian mini PC';
+        $this->postJson(route('admin.pencairan.store'), $first)->assertRedirect();
+        $this->postJson(route('admin.pencairan.store'), $first)->assertRedirect();
+        $firstNotice = NotificationMessage::where('subject', 'Pencairan dana')->firstOrFail();
+        $snapshot = $firstNotice->message;
+        $second = $this->payment($p, '2000000');
+        $second['metode'] = 'transfer';
+        $second['catatan'] = 'Pelunasan pembelian mini PC';
+        $this->postJson(route('admin.pencairan.store'), $second)->assertUnprocessable();
+        $this->assertSame(1, NotificationMessage::where('subject', 'Pencairan dana')->count());
+        $second['bukti_transfer'] = UploadedFile::fake()->create('pelunasan.pdf', 10, 'application/pdf');
+        $this->post(route('admin.pencairan.store'), $second)->assertRedirect()->assertSessionHasNoErrors();
+        $notices = NotificationMessage::where('subject', 'Pencairan dana')->orderBy('id')->get();
+        $this->assertCount(2, $notices);
+        foreach ($notices as $i => $notice) {
+            $this->assertSame($this->actor('karyawan')->id, (int) $notice->user_id);
+            foreach (['Pencairan dana tahap '.($i + 1), 'Proposal #'.$p->id.': Pencairan bertahap mini PC',
+                'Pemohon: karyawan', 'Departemen: IT', 'Grup: Office', 'Anggaran disetujui: Rp 4.000.000,00',
+                'Dicairkan tahap ini: Rp 2.000.000,00', 'Total sudah dicairkan: '.($i === 0 ? 'Rp 2.000.000,00' : 'Rp 4.000.000,00'),
+                'Belum dicairkan: '.($i === 0 ? 'Rp 2.000.000,00' : 'Rp 0,00'),
+                'Status: '.($i === 0 ? 'Dicairkan sebagian' : 'Dicairkan penuh'), 'Metode: '.($i === 0 ? 'Tunai' : 'Transfer bank'),
+                'Rekening sumber: Bank', 'Diproses oleh: keuangan', 'Catatan keuangan: '.($i === 0 ? $first['catatan'] : $second['catatan']),
+                'Waktu pencairan:', 'WIB', 'mengunggah nota penggunaan', 'ajukan pengembalian'] as $detail) {
+                $this->assertStringContainsString($detail, $notice->message);
+            }
+        }
+        $this->assertSame($snapshot, $firstNotice->fresh()->message);
+        $this->postJson(route('admin.pencairan.store'), $this->payment($p, '0.01'))->assertUnprocessable();
+        $this->assertSame(2, NotificationMessage::where('subject', 'Pencairan dana')->count());
+        $this->assertDatabaseCount('pencairan_dana', 2);
+    }
+
+    public function test_payout_message_preserves_cents_full_finance_note_and_historical_stage(): void
+    {
+        $p = $this->approved('1000000.50');
+        $this->actingAs($this->actor('keuangan'));
+        $first = $this->payment($p, '250000.25');
+        $first['catatan'] = str_repeat('A', 490).' SELESAI';
+        $this->postJson(route('admin.pencairan.store'), $first)->assertRedirect();
+        $notice = NotificationMessage::where('subject', 'Pencairan dana')->firstOrFail();
+        $this->assertStringContainsString('Dicairkan tahap ini: Rp 250.000,25', $notice->message);
+        $this->assertStringContainsString('Belum dicairkan: Rp 750.000,25', $notice->message);
+        $this->assertStringContainsString('Catatan keuangan: '.$first['catatan'], $notice->message);
+        $this->postJson(route('admin.pencairan.store'), $this->payment($p, '750000.25'))->assertRedirect();
+        $historical = WaTemplate::pencairan($p->fresh(), PencairanDana::orderBy('id')->firstOrFail(), 'keuangan');
+        $this->assertStringContainsString('Pencairan dana tahap 1', $historical);
+        $this->assertStringContainsString('Total sudah dicairkan: Rp 250.000,25', $historical);
+        $this->assertStringContainsString('Belum dicairkan: Rp 750.000,25', $historical);
+    }
+
     public function test_payout_detail_automatically_uses_group_source_for_proposal_year(): void
     {
         $p = $this->approved();
@@ -66,10 +124,10 @@ class PayoutWorkflowTest extends TestCase
         Rekening::create(['nama_rekening' => 'Rekening grup lain', 'saldo' => '8000000']);
         $response = $this->actingAs($this->actor('keuangan'))->get(route('admin.pencairan.show', $p->id));
         $response->assertOk()->assertViewHas('year', 2026)->assertViewHas('sourceAccount', fn ($account) => $account->nama_rekening === 'Bank')
-            ->assertViewHas('maximumCents', 400000050)->assertSee('Rekening sumber grup')->assertSee('data-payout-form', false)
+            ->assertViewHas('maximumCents', 400000050)->assertSee('Rekening sumber grup')->assertSee('enctype="multipart/form-data" data-payout-form', false)
             ->assertDontSee('Sumber tahun lain')->assertDontSee('Rekening grup lain')->assertDontSee('select name="rekening_id"', false);
         $this->get(route('admin.pencairan.index'))->assertOk()->assertDontSee('select name="rekening_id"', false);
-        $this->actingAs($this->actor('admin'))->get(route('admin.pencairan.show', $p->id))->assertOk()->assertDontSee('data-payout-form', false);
+        $this->actingAs($this->actor('admin'))->get(route('admin.pencairan.show', $p->id))->assertOk()->assertDontSee('enctype="multipart/form-data" data-payout-form', false);
         $bad = $this->payment($p, '100');
         $bad['rekening_id'] = $future->id;
         $this->actingAs($this->actor('keuangan'))->postJson(route('admin.pencairan.store'), $bad)->assertUnprocessable();
@@ -101,7 +159,7 @@ class PayoutWorkflowTest extends TestCase
         $this->assertSame(400000050, Budgets::cents($p->pencairan()->sum('jumlah_dana')));
         $this->assertSame(1599999950, Budgets::cents($account->fresh()->saldo));
         $this->get(route('admin.pencairan.show', $p->id))->assertOk()->assertViewHas('remainingCents', 0)
-            ->assertSee('Tahap 3')->assertSee('Lihat bukti transfer')->assertDontSee('data-payout-form', false);
+            ->assertSee('Tahap 3')->assertSee('Lihat bukti transfer')->assertDontSee('enctype="multipart/form-data" data-payout-form', false);
         $this->get(route('admin.pencairan.index'))->assertOk()->assertViewHas('proposals', fn ($rows) => $rows->doesntContain('id', $p->id));
         $this->postJson(route('admin.pencairan.store'), $this->payment($p, '0.01'))->assertUnprocessable();
         $this->assertSame(1599999950, Budgets::cents($account->fresh()->saldo));
@@ -116,10 +174,10 @@ class PayoutWorkflowTest extends TestCase
         $this->actingAs($this->actor('keuangan'))->from($url)->post(route('admin.pencairan.store'), $data)->assertRedirect($url)->assertSessionHasErrors('catatan');
         $this->get($url)->assertOk()->assertSee('Pencairan belum tersimpan.');
         BudgetPeriod::whereKey(2026)->update(['status' => 'closed']);
-        $this->get($url)->assertOk()->assertSee('Periode budget 2026 ditutup')->assertDontSee('data-payout-form', false);
+        $this->get($url)->assertOk()->assertSee('Periode budget 2026 ditutup')->assertDontSee('enctype="multipart/form-data" data-payout-form', false);
         BudgetPeriod::whereKey(2026)->update(['status' => 'open']);
         GroupFunding::firstOrFail()->delete();
-        $this->get($url)->assertOk()->assertSee('Rekening sumber grup tahun 2026 belum ditetapkan')->assertDontSee('data-payout-form', false);
+        $this->get($url)->assertOk()->assertSee('Rekening sumber grup tahun 2026 belum ditetapkan')->assertDontSee('enctype="multipart/form-data" data-payout-form', false);
     }
 
     public function test_refund_between_installments_does_not_increase_gross_payout_limit(): void

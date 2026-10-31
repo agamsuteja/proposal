@@ -102,3 +102,9 @@ Riwayat menunjukkan tahap, waktu, rekening, nominal, metode, catatan dan tautan 
 Form disembunyikan jika belum disetujui final, sudah cair penuh, rekening sumber belum ditetapkan, pendanaan tidak didukung saldo, atau periode ditutup. Kesalahan validasi ditampilkan di halaman detail. Pembaruan formulir dan riwayat ini tidak memerlukan SQL baru atau migrasi.
 
 Tombol **Cetak PDF Pencairan** pada detail proposal tersedia bagi admin/keuangan. Laporan berisi identitas proposal dan pemohon, sumber rekening, total anggaran, total pencairan bruto, sisa belum dicairkan, seluruh tahap beserta metode/catatan, riwayat persetujuan, serta ringkasan nota dan pengembalian diterima. Bukti transfer tetap diakses melalui aplikasi dengan pemeriksaan hak akses. PDF mengikuti data saat dicetak; sisa pencairan dan sisa pertanggungjawaban ditampilkan terpisah.
+
+## Pesan pencairan ke pemohon — 31 Oktober 2026
+
+Setiap pencairan mengirim rincian tahap ke pemilik proposal: nomor/judul proposal, pemohon, departemen/grup, anggaran disetujui, nominal tahap ini, total sudah cair, anggaran belum dicairkan, status sebagian/penuh, metode, rekening sumber, nama keuangan, waktu pencatatan dan catatan yang diisi keuangan. Catatan memakai data pencairan tahap tersebut, bukan catatan dari tahap terakhir atau persetujuan. Dua pencairan dengan nominal sama dibedakan oleh tahap, catatan dan sisa anggaran.
+
+Rincian disimpan sebagai snapshot pesan saat transaksi dicatat. Antrean/retry tidak menjalankan pencairan ulang. Pengulangan permintaan dengan kunci transaksi yang sama tidak menambah pencairan ataupun notifikasi. Sisa dalam pesan adalah anggaran yang belum dicairkan, bukan saldo rekening atau sisa setelah nota/refund. Pembaruan berlaku untuk notifikasi baru setelah deploy; pesan lama tidak ditulis ulang. Tidak memerlukan SQL tambahan atau migrasi.

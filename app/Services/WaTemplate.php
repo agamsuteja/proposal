@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\BudgetRequest;
+use App\Models\PencairanDana;
 use App\Models\Proposal;
 
 /**
@@ -168,25 +169,36 @@ class WaTemplate
     // ===================================================================
 
     /** Ke pemohon: dana dicairkan */
-    public static function pencairan($nama, $judul, $status, $jumlahCair, $totalCair, $totalAnggaran, $catatan = null): string
+    public static function pencairan(Proposal $proposal, PencairanDana $payout, string $keuangan): string
     {
+        $proposal->loadMissing(['user', 'departemen.grup']);
+        $payout->loadMissing('rekening');
+        $payments = $proposal->pencairan()->where('id', '<=', $payout->id);
+        $stage = (clone $payments)->count();
+        $paid = DepartmentBudgetService::cents((clone $payments)->sum('jumlah_dana'));
+        $remaining = max(0, DepartmentBudgetService::cents($proposal->total_anggaran) - $paid);
         $isi = [
-            'Proposal Anda telah diproses oleh Tim Keuangan.',
+            'Pencairan dana tahap '.$stage.' telah dicatat oleh Tim Keuangan.',
             '',
-            'Judul: ' . self::bersih($judul),
-            'Status: ' . self::bersih($status, 60),
-            'Dicairkan sekarang: ' . self::rp($jumlahCair),
-            'Total dicairkan: ' . self::rp($totalCair),
-            'Total anggaran: ' . self::rp($totalAnggaran),
+            'Proposal #'.$proposal->id.': '.self::bersih($proposal->judul),
+            'Pemohon: '.self::bersih($proposal->user?->name ?? '-', 100),
+            'Departemen: '.self::bersih($proposal->departemen?->nama_departemen ?? '-', 150),
+            'Grup: '.self::bersih($proposal->departemen?->grup?->nama_grup ?? '-', 150),
+            '',
+            'Anggaran disetujui: '.self::budgetRp($proposal->total_anggaran),
+            'Dicairkan tahap ini: '.self::budgetRp($payout->jumlah_dana),
+            'Total sudah dicairkan: '.self::budgetRp(DepartmentBudgetService::amount($paid)),
+            'Belum dicairkan: '.self::budgetRp(DepartmentBudgetService::amount($remaining)),
+            'Status: '.($remaining === 0 ? 'Dicairkan penuh' : 'Dicairkan sebagian'),
+            '',
+            'Metode: '.($payout->metode === 'transfer' ? 'Transfer bank' : 'Tunai'),
+            'Rekening sumber: '.self::bersih($payout->rekening?->nama_rekening ?? '-', 150),
+            'Diproses oleh: '.self::bersih($keuangan, 100),
+            'Catatan keuangan: '.(self::bersih($payout->catatan, 500) ?: '-'),
+            'Waktu pencairan: '.\Illuminate\Support\Carbon::parse($payout->created_at)->timezone('Asia/Jakarta')->format('d/m/Y H:i').' WIB',
         ];
 
-        $catatan = self::bersih($catatan);
-        if ($catatan !== '') {
-            $isi[] = '';
-            $isi[] = 'Catatan Tim Keuangan: ' . $catatan;
-        }
-
-        return self::notif($nama, $isi, 'Silakan buka aplikasi ' . self::APLIKASI . ' untuk melihat detail proposal.');
+        return self::notif($proposal->user->name, $isi, 'Silakan buka detail proposal di aplikasi '.self::APLIKASI.' untuk memeriksa riwayat pencairan dan mengunggah nota penggunaan. Jika ada sisa dana yang tidak digunakan, ajukan pengembalian melalui aplikasi.');
     }
 
     /** Ke Tim Keuangan: ada pengembalian dana */

@@ -14,6 +14,7 @@ use App\Services\FinancialOperation;
 use App\Services\FinancialBalance;
 use App\Services\GroupFundingService;
 use App\Services\NotificationService;
+use App\Services\WaTemplate;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -135,7 +136,7 @@ class PencairanDanaController extends Controller
                 $account->decrement('saldo', $data['jumlah_dana']);
                 $payout = PencairanDana::create(collect($data)->except(['bukti_transfer', 'operation_id'])->all() + ['bukti_transfer' => $path]);
                 $proposal->update(['status' => $paid + $amount === DepartmentBudgetService::cents($proposal->total_anggaran) ? 'dicairkan' : 'dicairkan_sebagian']);
-                app(NotificationService::class)->queue($proposal->user->nohp, 'Pencairan dana Rp '.number_format($data['jumlah_dana'], 2, ',', '.').' untuk proposal '.$proposal->judul.' telah dicatat.', 'Pencairan dana', $proposal->user_id, 'payout-'.$payout->id);
+                app(NotificationService::class)->queue($proposal->user->nohp, WaTemplate::pencairan($proposal, $payout, $request->user()->name), 'Pencairan dana', $proposal->user_id, 'payout-'.$payout->id);
                 app(FinancialOperation::class)->complete($data['operation_id']);
             }, 3);
         } catch (\Throwable $e) {
